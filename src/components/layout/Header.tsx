@@ -1,180 +1,200 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { localDataService, type LocalUser } from '../../services/localDataService';
+import { cloudDataService } from '../../services/cloudDataService';
 
 const Header: React.FC = () => {
   const { currentUser, logout } = useAuth();
-  const [userStats, setUserStats] = useState<LocalUser | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [userStats, setUserStats] = useState({
+    displayName: '',
+    totalPoints: 0,
+    totalProblems: 0,
+    level: 'novice' as 'novice' | 'fighter' | 'master'
+  });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (currentUser) {
       loadUserStats();
+      
+      // Слушаем события обновления статистики
+      const handleStatsUpdate = () => {
+        loadUserStats();
+      };
+      
+      window.addEventListener('userStatsUpdated', handleStatsUpdate);
+      
+      return () => {
+        window.removeEventListener('userStatsUpdated', handleStatsUpdate);
+      };
+    } else {
+      setLoading(false);
     }
   }, [currentUser]);
 
-  useEffect(() => {
-    // Слушаем событие обновления статистики
-    const handleStatsUpdate = () => {
-      loadUserStats();
-    };
-
-    window.addEventListener('userStatsUpdated', handleStatsUpdate);
-    
-    return () => {
-      window.removeEventListener('userStatsUpdated', handleStatsUpdate);
-    };
-  }, [currentUser]);
-
   const loadUserStats = async () => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);
-
-      // Получаем правильное ФИО пользователя
-      const displayName = await localDataService.getUserDisplayName(
-        currentUser.uid, 
-        currentUser.email || ''
-      );
-
-      // Только для обычных пользователей (не админов) сохраняем в локальную базу
-      if (currentUser.email !== 'admin@mail.ru') {
-        await localDataService.saveUser({
-          id: currentUser.uid,
-          email: currentUser.email || '',
-          fullName: displayName,
-          joinedAt: new Date().toISOString(),
-          lastActive: new Date().toISOString(),
-        });
-
-        // Получаем актуальные данные пользователя
-        const userData = await localDataService.getUser(currentUser.uid);
-        if (userData) {
-          setUserStats(userData);
-        }
-      } else {
-        // Для админа показываем специальные данные
-        setUserStats({
-          id: currentUser.uid,
-          email: currentUser.email,
-          fullName: 'Администратор',
-          totalPoints: 0,
-          totalProblems: 0,
-          level: 'master',
-          joinedAt: new Date().toISOString(),
-          lastActive: new Date().toISOString(),
-          isAdmin: true
-        });
-      }
-
+      
+      // Получаем статистику пользователя из Firebase
+      const stats = await cloudDataService.getUserStats(currentUser.uid);
+      const displayName = await cloudDataService.getUserDisplayName(currentUser.uid, currentUser.email || '');
+      
+      setUserStats({
+        displayName,
+        totalPoints: stats.totalPoints,
+        totalProblems: stats.totalProblems,
+        level: stats.level
+      });
+      
+      console.log('✅ Header: Загружена статистика пользователя из Firebase:', stats);
+      
     } catch (error) {
-      console.error('❌ Ошибка загрузки статистики в Header:', error);
+      console.error('❌ Header: Ошибка загрузки статистики:', error);
+      // Устанавливаем значения по умолчанию
+      setUserStats({
+        displayName: currentUser.email?.split('@')[0] || 'Пользователь',
+        totalPoints: 0,
+        totalProblems: 0,
+        level: 'novice'
+      });
     } finally {
       setLoading(false);
     }
   };
 
   const getLevelInfo = (level: string) => {
-    const levels: Record<string, { name: string; emoji: string; color: string }> = {
-      novice: { name: 'Новичок', emoji: '🏁', color: 'text-green-600' },
-      fighter: { name: 'Боец', emoji: '🛠️', color: 'text-blue-600' },
-      master: { name: 'Мастер', emoji: '🧠', color: 'text-purple-600' },
-    };
-    return levels[level] || levels.novice;
+    switch (level) {
+      case 'master':
+        return { name: 'Мастер', emoji: '🧠', color: 'text-violet-600' };
+      case 'fighter':
+        return { name: 'Боец', emoji: '🛠️', color: 'text-amber-600' };
+      default:
+        return { name: 'Новичок', emoji: '🏁', color: 'text-green-600' };
+    }
   };
 
   const handleLogout = async () => {
     try {
       await logout();
     } catch (error) {
-      console.error('Error logging out:', error);
+      console.error('Ошибка выхода:', error);
     }
   };
 
-  return (
-    <header className="bg-white shadow-sm border-b">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center py-4">
-          {/* Логотип */}
-          <div className="flex items-center space-x-3">
-            <div className="text-3xl">🏭</div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">Система отчетов ПНР</h1>
-              <p className="text-sm text-gray-500">Геймификация производственных процессов</p>
+  const handleRefreshStats = () => {
+    loadUserStats();
+  };
+
+  if (!currentUser) {
+    return (
+      <header className="bg-white shadow-sm border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center">
+              <h1 className="text-xl font-bold text-gray-900">
+                🏆 Problem Tracker
+              </h1>
+            </div>
+            <div className="text-sm text-gray-600">
+              Войдите в систему
             </div>
           </div>
+        </div>
+      </header>
+    );
+  }
 
-          {/* Профиль пользователя */}
-          {currentUser && (
-            <div className="flex items-center space-x-4">
-              {/* Информация о пользователе */}
-              <div className="text-right">
-                {loading ? (
+  const levelInfo = getLevelInfo(userStats.level);
+
+  return (
+    <header className="bg-white shadow-sm border-b border-gray-200">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16">
+          {/* Логотип */}
+          <div className="flex items-center">
+            <h1 className="text-xl font-bold text-gray-900">
+              🏆 Problem Tracker
+            </h1>
+          </div>
+
+          {/* Информация о пользователе */}
+          <div className="flex items-center space-x-4">
+            {loading ? (
+              <div className="flex items-center space-x-2">
+                <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
+                <span className="text-sm text-gray-600">Загрузка...</span>
+              </div>
+            ) : (
+              <>
+                {/* Статистика пользователя */}
+                <div className="hidden sm:flex items-center space-x-4 text-sm">
                   <div className="flex items-center space-x-2">
-                    <div className="animate-pulse">
-                      <div className="h-4 bg-gray-300 rounded w-20 mb-1"></div>
-                      <div className="h-3 bg-gray-300 rounded w-32"></div>
+                    <span className={`${levelInfo.color} font-medium`}>
+                      {levelInfo.emoji} {levelInfo.name}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <span className="text-gray-600">Баллы:</span>
+                    <span className="font-semibold text-blue-600">{userStats.totalPoints}</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <span className="text-gray-600">Проблем:</span>
+                    <span className="font-semibold text-gray-900">{userStats.totalProblems}</span>
+                  </div>
+                </div>
+
+                {/* Кнопка обновления */}
+                <button
+                  onClick={handleRefreshStats}
+                  className="p-2 text-gray-600 hover:text-blue-600 transition-colors"
+                  title="Обновить статистику"
+                >
+                  🔄
+                </button>
+
+                {/* Профиль пользователя */}
+                <div className="flex items-center space-x-3">
+                  <div className="text-right">
+                    <div className="text-sm font-medium text-gray-900">
+                      {userStats.displayName}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {currentUser.email}
                     </div>
                   </div>
-                ) : userStats ? (
-                  <>
-                    <div className="flex items-center space-x-2">
-                      <span className="font-medium text-gray-900">{userStats.fullName}</span>
-                      <span className="text-2xl">{getLevelInfo(userStats.level).emoji}</span>
-                    </div>
-                    <div className="flex items-center space-x-4 text-sm text-gray-500">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium bg-gray-100 ${getLevelInfo(userStats.level).color}`}>
-                        {getLevelInfo(userStats.level).name}
-                      </span>
-                      <span>💎 {userStats.totalPoints} баллов</span>
-                      <span>📝 {userStats.totalProblems} ответов</span>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex items-center space-x-2">
-                      <span className="font-medium text-gray-900">
-                        {currentUser.displayName || currentUser.email || 'Пользователь'}
-                      </span>
-                      <span className="text-2xl">🏁</span>
-                    </div>
-                    <div className="flex items-center space-x-4 text-sm text-gray-500">
-                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-green-600">
-                        Новичок
-                      </span>
-                      <span>💎 0 баллов</span>
-                      <span>📝 0 ответов</span>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Кнопка обновления */}
-              <button
-                onClick={loadUserStats}
-                disabled={loading}
-                className="text-gray-500 hover:text-gray-700 p-2 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50"
-                title="Обновить статистику"
-              >
-                <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </button>
-
-              {/* Кнопка выхода */}
-              <button
-                onClick={handleLogout}
-                className="text-gray-500 hover:text-gray-700 p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                title="Выйти"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013 3v1" />
-                </svg>
-              </button>
-            </div>
-          )}
+                  
+                  {/* Кнопка выхода */}
+                  <button
+                    onClick={handleLogout}
+                    className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
+                  >
+                    Выйти
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
+
+        {/* Мобильная статистика */}
+        {!loading && (
+          <div className="sm:hidden pb-3 flex items-center justify-center space-x-4 text-sm">
+            <span className={`${levelInfo.color} font-medium`}>
+              {levelInfo.emoji} {levelInfo.name}
+            </span>
+            <span className="text-gray-600">
+              Баллы: <span className="font-semibold text-blue-600">{userStats.totalPoints}</span>
+            </span>
+            <span className="text-gray-600">
+              Проблем: <span className="font-semibold text-gray-900">{userStats.totalProblems}</span>
+            </span>
+          </div>
+        )}
       </div>
     </header>
   );

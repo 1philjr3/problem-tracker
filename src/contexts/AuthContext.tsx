@@ -8,7 +8,7 @@ import {
   sendEmailVerification
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase';
+import { auth, db } from '../config/firebase';
 import type { User } from '../types';
 
 interface AuthContextType {
