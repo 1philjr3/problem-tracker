@@ -53,8 +53,6 @@ export interface LocalDatabase {
   settings: SeasonSettings;
 }
 
-import { auth } from '../config/firebase';
-
 class LocalDataService {
   private readonly DATA_PATH = '/Users/mike/Desktop/quiz/problem-tracker-data';
   private readonly UPLOADS_PATH = `${this.DATA_PATH}/uploads`;
@@ -236,7 +234,7 @@ class LocalDataService {
     try {
       // Сначала пробуем получить из Firebase/Firestore
       const { getDoc, doc } = await import('firebase/firestore');
-      const { db } = await import('../config/firebase');
+      const { db } = await import('../firebase');
       
       const userDoc = await getDoc(doc(db, 'users', userId));
       if (userDoc.exists()) {

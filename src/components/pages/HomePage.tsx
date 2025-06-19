@@ -1,307 +1,362 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { cloudDataService } from '../../services/cloudDataService';
+import { cloudDataService, type LocalUser } from '../../services/cloudDataService';
 import { SeasonTimer } from '../common/SeasonTimer';
 
 const HomePage: React.FC = () => {
   const { currentUser } = useAuth();
-  const [userStats, setUserStats] = useState({
-    displayName: '',
-    totalPoints: 0,
-    totalProblems: 0,
-    level: 'novice' as 'novice' | 'fighter' | 'master'
-  });
-  const [seasonSettings, setSeasonSettings] = useState({
-    currentSeason: 'Конкурс ПНР',
-    seasonStartDate: new Date().toISOString(),
-    seasonEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-    isActive: true,
-    isFinished: false
-  });
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [userStats, setUserStats] = useState<LocalUser | null>(null);
+  const [leaderboard, setLeaderboard] = useState<LocalUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [seasonReport, setSeasonReport] = useState<any>(null);
+
+  // Обновляем время каждую секунду
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (currentUser) {
       loadData();
-      
-      // Слушаем события обновления
-      const handleUpdate = () => {
-        loadData();
-      };
-      
-      window.addEventListener('userStatsUpdated', handleUpdate);
-      
-      return () => {
-        window.removeEventListener('userStatsUpdated', handleUpdate);
-      };
     } else {
       setLoading(false);
     }
   }, [currentUser]);
 
+  useEffect(() => {
+    // Слушаем события обновления данных
+    const handleUpdate = () => {
+      loadData();
+    };
+
+    window.addEventListener('userStatsUpdated', handleUpdate);
+    return () => {
+      window.removeEventListener('userStatsUpdated', handleUpdate);
+    };
+  }, []);
+
   const loadData = async () => {
-    if (!currentUser) {
-      setLoading(false);
-      return;
-    }
+    if (!currentUser) return;
 
     try {
       setLoading(true);
-      
-      // Загружаем данные пользователя и настройки сезона
-      const [userStatsData, seasonData] = await Promise.all([
-        cloudDataService.getUserStats ? cloudDataService.getUserStats(currentUser.uid) : Promise.resolve({ totalPoints: 0, totalProblems: 0, level: 'novice' as const }),
-        cloudDataService.getSeasonSettings()
-      ]);
-      
-      const displayName = await cloudDataService.getUserDisplayName(currentUser.uid, currentUser.email || '');
-      
-      setUserStats({
-        displayName,
-        totalPoints: userStatsData.totalPoints,
-        totalProblems: userStatsData.totalProblems,
-        level: userStatsData.level
+
+      // Получаем имя пользователя
+      const displayName = await cloudDataService.getUserDisplayName(
+        currentUser.uid, 
+        currentUser.email || ''
+      );
+
+      // Сохраняем пользователя
+      await cloudDataService.saveUser({
+        id: currentUser.uid,
+        email: currentUser.email || '',
+        fullName: displayName,
+        joinedAt: new Date().toISOString(),
+        lastActive: new Date().toISOString(),
       });
-      
-      setSeasonSettings(seasonData);
-      
-      console.log('✅ HomePage: Данные загружены из Firebase');
-      
+
+      // Загружаем данные пользователя и рейтинг
+      const userData = await cloudDataService.getUser(currentUser.uid);
+      const leaderboard = await cloudDataService.getLeaderboard();
+
+      setUserStats(userData);
+      setLeaderboard(leaderboard);
+
     } catch (error) {
-      console.error('❌ HomePage: Ошибка загрузки данных:', error);
-      // Устанавливаем значения по умолчанию
-      if (currentUser) {
-        setUserStats({
-          displayName: currentUser.email?.split('@')[0] || 'Пользователь',
-          totalPoints: 0,
-          totalProblems: 0,
-          level: 'novice'
-        });
-      }
+      console.error('Ошибка загрузки данных:', error);
     } finally {
       setLoading(false);
     }
   };
 
+  const loadSeasonReport = async () => {
+    try {
+      const report = await cloudDataService.getSeasonReport();
+      setSeasonReport(report);
+    } catch (error) {
+      console.error('Ошибка загрузки отчета:', error);
+    }
+  };
+
   const getLevelInfo = (level: string) => {
     switch (level) {
-      case 'master':
-        return { name: 'Мастер', emoji: '🧠', color: 'text-violet-600', bgColor: 'bg-violet-100' };
+      case 'novice':
+        return { emoji: '🏁', title: 'Новичок', range: '1-4 балла', color: 'text-green-600' };
       case 'fighter':
-        return { name: 'Боец', emoji: '🛠️', color: 'text-amber-600', bgColor: 'bg-amber-100' };
+        return { emoji: '🛠️', title: 'Боец', range: '5-9 баллов', color: 'text-blue-600' };
+      case 'master':
+        return { emoji: '🧠', title: 'Мастер', range: '10+ баллов', color: 'text-purple-600' };
       default:
-        return { name: 'Новичок', emoji: '🏁', color: 'text-green-600', bgColor: 'bg-green-100' };
+        return { emoji: '🏁', title: 'Новичок', range: '1-4 балла', color: 'text-green-600' };
     }
+  };
+
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString('ru-RU', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  };
+
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString('ru-RU', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
   };
 
   if (!currentUser) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="text-center">
-          <div className="text-6xl mb-4">🔒</div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Добро пожаловать!</h2>
-          <p className="text-gray-600">Войдите в систему, чтобы начать отправлять проблемы и получать баллы</p>
-        </div>
+      <div className="text-center py-12">
+        <p className="text-gray-500">Войдите в систему для просмотра главной страницы</p>
       </div>
     );
   }
-
-  if (loading) {
-    return (
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="text-center">
-          <div className="animate-spin h-8 w-8 border-2 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p className="text-gray-600">Загрузка данных...</p>
-        </div>
-      </div>
-    );
-  }
-
-  const levelInfo = getLevelInfo(userStats.level);
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-4 sm:py-8">
+    <div className="max-w-7xl mx-auto p-6 space-y-6">
       {/* Приветствие */}
-      <div className="text-center mb-6 sm:mb-8">
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
-          Добро пожаловать, {userStats.displayName}! 👋
-        </h1>
-        <p className="text-gray-600 text-sm sm:text-base">
-          Отправляйте проблемы, получайте баллы и поднимайтесь в рейтинге
-        </p>
-      </div>
-
-      {/* Информация о системе */}
-      <div className="mb-6 sm:mb-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-        <div className="flex items-start space-x-3">
-          <span className="text-2xl">☁️</span>
-          <div className="flex-1">
-            <h3 className="font-semibold text-blue-800">Облачная синхронизация</h3>
-            <p className="text-sm text-blue-600">
-              Ваши данные синхронизируются с Firebase Firestore в реальном времени.<br />
-              Все участники видят актуальную информацию о рейтинге и проблемах.
+      <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg shadow-lg text-white p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold mb-2">
+              Добро пожаловать, {userStats?.fullName || 'Пользователь'}! 👋
+            </h1>
+            <p className="text-blue-100">
+              Система геймификации для сообщения о проблемах на производстве
             </p>
+          </div>
+          <div className="text-6xl opacity-20">
+            🏭
           </div>
         </div>
       </div>
 
       {/* Статистика пользователя */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
-        {/* Уровень */}
-        <div className={`${levelInfo.bgColor} rounded-lg p-4 sm:p-6 text-center`}>
-          <div className="text-3xl sm:text-4xl mb-2">{levelInfo.emoji}</div>
-          <div className={`text-lg sm:text-xl font-bold ${levelInfo.color} mb-1`}>
-            {levelInfo.name}
-          </div>
-          <div className="text-sm text-gray-600">Ваш уровень</div>
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="bg-white rounded-lg shadow p-6 animate-pulse">
+              <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+              <div className="h-8 bg-gray-200 rounded w-1/2"></div>
+            </div>
+          ))}
         </div>
-
-        {/* Баллы */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6 text-center">
-          <div className="text-3xl sm:text-4xl font-bold text-blue-600 mb-2">
-            {userStats.totalPoints}
+      ) : userStats ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Уровень */}
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="flex items-center">
+              <div className="text-4xl mr-4">
+                {getLevelInfo(userStats.level).emoji}
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {getLevelInfo(userStats.level).title}
+                </h3>
+                <p className="text-sm text-gray-500">
+                  {getLevelInfo(userStats.level).range}
+                </p>
+              </div>
+            </div>
           </div>
-          <div className="text-lg font-semibold text-gray-900 mb-1">Баллов</div>
-          <div className="text-sm text-gray-600">Всего заработано</div>
+
+          {/* Баллы */}
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="flex items-center">
+              <div className="text-4xl mr-4">💎</div>
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900">
+                  {userStats.totalPoints}
+                </h3>
+                <p className="text-sm text-gray-500">Общий счет</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Проблемы */}
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="flex items-center">
+              <div className="text-4xl mr-4">📝</div>
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900">
+                  {userStats.totalProblems}
+                </h3>
+                <p className="text-sm text-gray-500">Сообщений отправлено</p>
+              </div>
+            </div>
+          </div>
         </div>
+      ) : null}
 
-        {/* Проблемы */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6 text-center">
-          <div className="text-3xl sm:text-4xl font-bold text-green-600 mb-2">
-            {userStats.totalProblems}
-          </div>
-          <div className="text-lg font-semibold text-gray-900 mb-1">Проблем</div>
-          <div className="text-sm text-gray-600">Отправлено</div>
+      {/* Текущее время */}
+      <div className="text-center">
+        <div className="text-xs sm:text-sm text-blue-600 font-medium">
+          {formatDate(currentTime)}
+        </div>
+        <div className="text-lg sm:text-2xl font-bold text-blue-800">
+          {formatTime(currentTime)}
         </div>
       </div>
 
       {/* Таймер сезона */}
-      <div className="mb-6 sm:mb-8">
-        <SeasonTimer 
-          seasonName={seasonSettings.currentSeason}
-          endDate={seasonSettings.seasonEndDate}
-          isActive={seasonSettings.isActive}
-          isFinished={seasonSettings.isFinished}
-        />
+      <SeasonTimer />
+
+      {/* Топ-5 рейтинга */}
+      <div className="bg-white rounded-lg shadow-lg p-6">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold text-gray-900">🏆 Топ участников</h2>
+          <button
+            onClick={loadData}
+            className="text-blue-600 hover:text-blue-800 text-sm"
+          >
+            Обновить
+          </button>
+        </div>
+
+        {leaderboard.length === 0 ? (
+          <p className="text-gray-500 text-center py-8">
+            Пока нет участников в рейтинге
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {leaderboard.slice(0, 5).map((user, index) => {
+              const levelInfo = getLevelInfo(user.level);
+              return (
+                <div
+                  key={user.id}
+                  className={`flex items-center justify-between p-3 rounded-lg ${
+                    index === 0 ? 'bg-yellow-50 border border-yellow-200' :
+                    index === 1 ? 'bg-gray-50 border border-gray-200' :
+                    index === 2 ? 'bg-orange-50 border border-orange-200' :
+                    'bg-gray-50'
+                  }`}
+                >
+                  <div className="flex items-center space-x-3">
+                    <span className="text-lg font-bold text-gray-600 w-6">
+                      #{index + 1}
+                    </span>
+                    <span className="text-2xl">
+                      {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : levelInfo.emoji}
+                    </span>
+                    <div>
+                      <p className="font-medium text-gray-900">{user.fullName}</p>
+                      <p className="text-sm text-gray-500">
+                        {levelInfo.title} • {user.totalProblems} сообщений
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-bold text-gray-900">{user.totalPoints}</p>
+                    <p className="text-xs text-gray-500">баллов</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* Система уровней */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6 mb-6 sm:mb-8">
-        <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-4">📈 Система уровней</h2>
-        
-        <div className="space-y-4">
-          {/* Новичок */}
-          <div className={`flex items-center space-x-4 p-3 rounded-lg ${
-            userStats.level === 'novice' ? 'bg-green-100 border-2 border-green-300' : 'bg-gray-50'
-          }`}>
-            <div className="text-2xl">🏁</div>
-            <div className="flex-1">
-              <div className="flex items-center space-x-2">
-                <span className="font-semibold text-green-600">Новичок</span>
-                {userStats.level === 'novice' && (
-                  <span className="bg-green-600 text-white text-xs px-2 py-1 rounded-full">
-                    Ваш уровень
-                  </span>
-                )}
+      {/* Отчет по сезону */}
+      <div className="bg-white rounded-lg shadow-lg p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-gray-900">📊 Статистика сезона</h2>
+          <button
+            onClick={loadSeasonReport}
+            className="text-blue-600 hover:text-blue-800 text-sm"
+          >
+            Загрузить отчет
+          </button>
+        </div>
+
+        {seasonReport ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-600">
+                {seasonReport.totalParticipants}
               </div>
-              <div className="text-sm text-gray-600">1-4 балла • Начинающий участник</div>
+              <div className="text-sm text-gray-500">Участников</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-600">
+                {seasonReport.totalProblems}
+              </div>
+              <div className="text-sm text-gray-500">Проблем</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-purple-600">
+                {Object.keys(seasonReport.categoriesStats || {}).length}
+              </div>
+              <div className="text-sm text-gray-500">Категорий</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-orange-600">
+                {seasonReport.topUsers?.[0]?.totalPoints || 0}
+              </div>
+              <div className="text-sm text-gray-500">Макс баллов</div>
             </div>
           </div>
+        ) : (
+          <p className="text-gray-500 text-center py-4">
+            Нажмите "Загрузить отчет" для просмотра статистики
+          </p>
+        )}
+      </div>
 
-          {/* Боец */}
-          <div className={`flex items-center space-x-4 p-3 rounded-lg ${
-            userStats.level === 'fighter' ? 'bg-amber-100 border-2 border-amber-300' : 'bg-gray-50'
-          }`}>
-            <div className="text-2xl">🛠️</div>
-            <div className="flex-1">
-              <div className="flex items-center space-x-2">
-                <span className="font-semibold text-amber-600">Боец</span>
-                {userStats.level === 'fighter' && (
-                  <span className="bg-amber-600 text-white text-xs px-2 py-1 rounded-full">
-                    Ваш уровень
-                  </span>
-                )}
-              </div>
-              <div className="text-sm text-gray-600">5-9 баллов • Активный участник</div>
-            </div>
+      {/* Информация о системе */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+        <h3 className="font-semibold text-blue-900 mb-3">ℹ️ Как работает система:</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-blue-800">
+          <div>
+            <h4 className="font-medium mb-2">🎯 Геймификация:</h4>
+            <ul className="space-y-1">
+              <li>• +1 балл за каждую проблему</li>
+              <li>• До +10 бонусных баллов от админа</li>
+              <li>• 3 уровня: Новичок → Боец → Мастер</li>
+            </ul>
           </div>
-
-          {/* Мастер */}
-          <div className={`flex items-center space-x-4 p-3 rounded-lg ${
-            userStats.level === 'master' ? 'bg-violet-100 border-2 border-violet-300' : 'bg-gray-50'
-          }`}>
-            <div className="text-2xl">🧠</div>
-            <div className="flex-1">
-              <div className="flex items-center space-x-2">
-                <span className="font-semibold text-violet-600">Мастер</span>
-                {userStats.level === 'master' && (
-                  <span className="bg-violet-600 text-white text-xs px-2 py-1 rounded-full">
-                    Ваш уровень
-                  </span>
-                )}
-              </div>
-              <div className="text-sm text-gray-600">10+ баллов • Эксперт по качеству</div>
-            </div>
+          <div>
+            <h4 className="font-medium mb-2">☁️ Облачное хранение:</h4>
+            <ul className="space-y-1">
+              <li>• Данные синхронизируются между всеми</li>
+              <li>• Общий рейтинг для всех участников</li>
+              <li>• Админ может управлять системой</li>
+            </ul>
           </div>
         </div>
       </div>
 
-      {/* Как получить баллы */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
-        <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-4">💡 Как получить баллы</h2>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="flex items-start space-x-3">
-            <div className="bg-blue-100 text-blue-600 rounded-full p-2">
-              <span className="text-lg">📝</span>
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900">Отправка проблем</h3>
-              <p className="text-sm text-gray-600">+1 балл за каждую отправленную проблему</p>
-            </div>
-          </div>
-
-          <div className="flex items-start space-x-3">
-            <div className="bg-orange-100 text-orange-600 rounded-full p-2">
-              <span className="text-lg">⭐</span>
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900">Бонус от админа</h3>
-              <p className="text-sm text-gray-600">До +10 баллов за важные находки</p>
-            </div>
-          </div>
-
-          <div className="flex items-start space-x-3">
-            <div className="bg-green-100 text-green-600 rounded-full p-2">
-              <span className="text-lg">🏆</span>
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900">Качество отчетов</h3>
-              <p className="text-sm text-gray-600">Подробные описания и фото</p>
-            </div>
-          </div>
-
-          <div className="flex items-start space-x-3">
-            <div className="bg-purple-100 text-purple-600 rounded-full p-2">
-              <span className="text-lg">🎯</span>
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900">Активность</h3>
-              <p className="text-sm text-gray-600">Регулярное участие в системе</p>
-            </div>
-          </div>
+      {/* Быстрые действия */}
+      <div className="bg-white rounded-lg shadow-lg p-6">
+        <h2 className="text-xl font-bold text-gray-900 mb-4">⚡ Быстрые действия</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button
+            onClick={() => window.location.hash = '#/submit'}
+            className="p-4 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors"
+          >
+            <div className="text-2xl mb-2">📝</div>
+            <div className="font-medium text-blue-900">Сообщить о проблеме</div>
+            <div className="text-sm text-blue-600">Получить +1 балл</div>
+          </button>
+          
+          <button
+            onClick={() => window.location.hash = '#/leaderboard'}
+            className="p-4 bg-green-50 hover:bg-green-100 rounded-lg border border-green-200 transition-colors"
+          >
+            <div className="text-2xl mb-2">🏆</div>
+            <div className="font-medium text-green-900">Посмотреть рейтинг</div>
+            <div className="text-sm text-green-600">Узнать свою позицию</div>
+          </button>
         </div>
-      </div>
-
-      {/* Кнопка обновления */}
-      <div className="mt-6 text-center">
-        <button
-          onClick={loadData}
-          disabled={loading}
-          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-6 rounded-lg transition-colors"
-        >
-          {loading ? '🔄 Обновление...' : '🔄 Обновить данные'}
-        </button>
       </div>
     </div>
   );
