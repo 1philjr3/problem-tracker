@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { cloudDataService } from './services/cloudDataService';
 import AuthPage from './components/auth/AuthPage';
 import Header from './components/layout/Header';
 import Navigation from './components/layout/Navigation';
@@ -13,33 +12,14 @@ import './index.css';
 const AppContent: React.FC = () => {
   const { currentUser, userProfile, loading } = useAuth();
   const [activeTab, setActiveTab] = useState('home');
-  const [dataServiceInitialized, setDataServiceInitialized] = useState(false);
-
-  // Инициализируем cloudDataService при запуске
-  useEffect(() => {
-    const initializeDataService = async () => {
-      try {
-        await cloudDataService.initialize();
-        setDataServiceInitialized(true);
-        console.log('✅ CloudDataService инициализирован');
-      } catch (error) {
-        console.error('❌ Ошибка инициализации CloudDataService:', error);
-        setDataServiceInitialized(true); // Продолжаем работу даже при ошибке
-      }
-    };
-
-    initializeDataService();
-  }, []);
 
   // Показываем загрузку пока идет инициализация
-  if (loading || !dataServiceInitialized) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">
-            {!dataServiceInitialized ? 'Инициализация базы данных...' : 'Загрузка...'}
-          </p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Загрузка...</p>
         </div>
       </div>
     );

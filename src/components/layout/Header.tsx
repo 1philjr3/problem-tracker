@@ -1,143 +1,170 @@
 import React, { useState, useEffect } from 'react';
-import { cloudDataService, type LocalUser } from '../../services/cloudDataService';
 import { useAuth } from '../../contexts/AuthContext';
+import { dataService } from '../../services/dataService';
+import { auth } from '../../firebase';
+import { signOut } from 'firebase/auth';
+import { getLevelInfo } from '../../types';
 
 const Header: React.FC = () => {
   const { currentUser, logout } = useAuth();
   const [userStats, setUserStats] = useState<LocalUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
-  // Функция для загрузки статистики пользователя
-  const loadUserStats = async () => {
-    if (!currentUser) {
-      setUserStats(null);
-      setLoading(false);
-      return;
-    }
-
-    try {
-      setLoading(true);
-
-      // Получаем имя пользователя
-      const displayName = await cloudDataService.getUserDisplayName(
-        currentUser.uid, 
-        currentUser.email || ''
-      );
-
-      // Сохраняем/обновляем пользователя
-      await cloudDataService.saveUser({
-        id: currentUser.uid,
-        email: currentUser.email || '',
-        fullName: displayName,
-        joinedAt: new Date().toISOString(),
-        lastActive: new Date().toISOString(),
-      });
-
-      // Получаем обновленные данные пользователя
-      const userData = await cloudDataService.getUser(currentUser.uid);
-      setUserStats(userData);
-
-    } catch (error) {
-      console.error('Ошибка загрузки статистики пользователя:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Загружаем статистику при монтировании и изменении пользователя
   useEffect(() => {
-    loadUserStats();
+    if (currentUser) {
+      loadUserStats();
+    }
   }, [currentUser]);
 
-  // Слушаем события обновления статистики
   useEffect(() => {
+    // Слушаем событие обновления статистики
     const handleStatsUpdate = () => {
       loadUserStats();
     };
 
     window.addEventListener('userStatsUpdated', handleStatsUpdate);
+    
     return () => {
       window.removeEventListener('userStatsUpdated', handleStatsUpdate);
     };
-  }, []);
+  }, [currentUser]);
+
+  const loadUserStats = async () => {
+    if (!currentUser) return;
+
+    try {
+      setLoading(true);
+
+      // Получаем правильное ФИО пользователя
+      const displayName = await dataService.getUserDisplayName(
+        currentUser.uid, 
+        currentUser.email || ''
+      );
+
+      // Сохраняем пользователя в базе если нужно
+      await dataService.saveUser({
+        id: currentUser.uid,
+        email: currentUser.email || '',
+        fullName: displayName,
+        isEmailVerified: currentUser.emailVerified,
+        joinedAt: new Date().toISOString(),
+        lastActive: new Date().toISOString()
+      });
+
+      const userData = await dataService.getUser(currentUser.uid);
+      if (userData) {
+        setUserStats({
+          fullName: userData.fullName,
+          totalPoints: userData.totalPoints || 0,
+          level: getLevelInfo(userData.totalPoints || 0)
+        });
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки статистики:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getLevelInfo = (level: string) => {
-    switch (level) {
-      case 'novice':
-        return { emoji: '🏁', name: 'Новичок', range: '1-4 балла' };
-      case 'fighter':
-        return { emoji: '🛠️', name: 'Боец', range: '5-9 баллов' };
-      case 'master':
-        return { emoji: '🧠', name: 'Мастер', range: '10+ баллов' };
-      default:
-        return { emoji: '🏁', name: 'Новичок', range: '1-4 балла' };
-    }
+    const levels: Record<string, { name: string; emoji: string; color: string }> = {
+      novice: { name: 'Новичок', emoji: '🏁', color: 'text-green-600' },
+      fighter: { name: 'Боец', emoji: '🛠️', color: 'text-blue-600' },
+      master: { name: 'Мастер', emoji: '🧠', color: 'text-purple-600' },
+    };
+    return levels[level] || levels.novice;
   };
 
   const handleLogout = async () => {
     try {
       await logout();
     } catch (error) {
-      console.error('Ошибка выхода:', error);
+      console.error('Error logging out:', error);
     }
   };
-
-  if (!currentUser) {
-    return null;
-  }
 
   return (
     <header className="bg-white shadow-sm border-b">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
-          {/* Логотип и название */}
-          <div className="flex items-center">
-            <h1 className="text-xl font-bold text-gray-900">
-              🏆 Problem Tracker
-            </h1>
+        <div className="flex justify-between items-center py-4">
+          {/* Логотип */}
+          <div className="flex items-center space-x-3">
+            <div className="text-3xl">🏭</div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Система отчетов ПНР</h1>
+              <p className="text-sm text-gray-500">Геймификация производственных процессов</p>
+            </div>
           </div>
 
-          {/* Информация о пользователе */}
-          <div className="flex items-center space-x-4">
-            {loading ? (
-              <div className="animate-pulse">
-                <div className="h-4 bg-gray-200 rounded w-24"></div>
-              </div>
-            ) : userStats ? (
-              <div className="flex items-center space-x-3">
-                {/* Статистика */}
-                <div className="text-right">
-                  <div className="text-sm font-medium text-gray-900">
-                    {userStats.fullName}
+          {/* Профиль пользователя */}
+          {currentUser && (
+            <div className="flex items-center space-x-4">
+              {/* Информация о пользователе */}
+              <div className="text-right">
+                {loading ? (
+                  <div className="flex items-center space-x-2">
+                    <div className="animate-pulse">
+                      <div className="h-4 bg-gray-300 rounded w-20 mb-1"></div>
+                      <div className="h-3 bg-gray-300 rounded w-32"></div>
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500">
-                    {getLevelInfo(userStats.level).emoji} {getLevelInfo(userStats.level).name} • {userStats.totalPoints} баллов
-                  </div>
-                </div>
-
-                {/* Кнопка обновления */}
-                <button
-                  onClick={loadUserStats}
-                  className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
-                  title="Обновить статистику"
-                >
-                  🔄
-                </button>
+                ) : userStats ? (
+                  <>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-medium text-gray-900">{userStats.fullName}</span>
+                      <span className="text-2xl">{getLevelInfo(userStats.level).emoji}</span>
+                    </div>
+                    <div className="flex items-center space-x-4 text-sm text-gray-500">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium bg-gray-100 ${getLevelInfo(userStats.level).color}`}>
+                        {getLevelInfo(userStats.level).name}
+                      </span>
+                      <span>💎 {userStats.totalPoints} баллов</span>
+                      <span>📝 {userStats.totalProblems} ответов</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-medium text-gray-900">
+                        {currentUser.displayName || currentUser.email || 'Пользователь'}
+                      </span>
+                      <span className="text-2xl">🏁</span>
+                    </div>
+                    <div className="flex items-center space-x-4 text-sm text-gray-500">
+                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-green-600">
+                        Новичок
+                      </span>
+                      <span>💎 0 баллов</span>
+                      <span>📝 0 ответов</span>
+                    </div>
+                  </>
+                )}
               </div>
-            ) : (
-              <div className="text-sm text-gray-500">
-                {currentUser.email}
-              </div>
-            )}
 
-            {/* Кнопка выхода */}
-            <button
-              onClick={handleLogout}
-              className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-500 bg-white hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Выйти
-            </button>
-          </div>
+              {/* Кнопка обновления */}
+              <button
+                onClick={loadUserStats}
+                disabled={loading}
+                className="text-gray-500 hover:text-gray-700 p-2 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50"
+                title="Обновить статистику"
+              >
+                <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+
+              {/* Кнопка выхода */}
+              <button
+                onClick={handleLogout}
+                className="text-gray-500 hover:text-gray-700 p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                title="Выйти"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013 3v1" />
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>

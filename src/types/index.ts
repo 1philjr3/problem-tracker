@@ -34,16 +34,17 @@ export interface Problem {
   id: string;
   title: string;
   description: string;
-  category: ProblemCategory;
+  details?: string; // Дополнительные детали (опционально)
+  category: ProblemCategory | string; // Может быть строкой для совместимости
   authorId: string;
   authorName: string;
   images: string[]; // Имена файлов изображений
   points: number; // Баллы за проблему (1 + бонусы)
   status: ProblemStatus;
   reviewed: boolean; // Отмечена ли проблема как просмотренная админом
-  reviewedAt?: string; // Дата просмотра
+  reviewedAt?: string | Date; // Дата просмотра
   reviewedBy?: string; // ID админа, который просмотрел
-  createdAt: string;
+  createdAt: string | Date;
   seasonId: string;
   adminNotes?: string; // Заметки администратора
 }
@@ -70,6 +71,24 @@ export interface PointsHistory {
   createdAt: string;
   seasonId: string;
   adminId?: string; // ID админа, если баллы добавлены вручную
+}
+
+// Настройки сезона
+export interface SeasonSettings {
+  currentSeason: string;
+  startDate: string;
+  endDate: string;
+  isActive: boolean;
+  isFinished: boolean;
+}
+
+// Запись в таблице лидеров
+export interface LeaderboardEntry {
+  userId: string;
+  fullName: string;
+  points: number;
+  answersCount: number;
+  position: number;
 }
 
 // Константы уровней
@@ -153,6 +172,6 @@ export const getLevelInfo = (points: number) => {
   return LEVELS.novice;
 };
 
-export const getCategoryInfo = (category: ProblemCategory) => {
-  return CATEGORIES[category];
+export const getCategoryInfo = (category: ProblemCategory | string) => {
+  return CATEGORIES[category as ProblemCategory] || CATEGORIES.other;
 }; 
