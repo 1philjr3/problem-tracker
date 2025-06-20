@@ -14,13 +14,12 @@ import { getAnalytics } from "firebase/analytics";
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyDbjPRbpsnNy3qfHcLMKlH9UxYW8pMsSwQ",
-  authDomain: "quiz-981ac.firebaseapp.com",
-  projectId: "quiz-981ac",
-  storageBucket: "quiz-981ac.firebasestorage.app",
-  messagingSenderId: "1070106055281",
-  appId: "1:1070106055281:web:ac88fadc103fd7c5a481d0",
-  measurementId: "G-2J095RKCG0"
+  apiKey: "AIzaSyC5lKFznAWAONxV6hVQ-5qu7lbBDa9VFIE",
+  authDomain: "quiz-5b2f2.firebaseapp.com",
+  projectId: "quiz-5b2f2",
+  storageBucket: "quiz-5b2f2.firebasestorage.app",
+  messagingSenderId: "485460821593",
+  appId: "1:485460821593:web:a3e8f7b5e3a7a4b7cfdcaa"
 };
 
 // Initialize Firebase

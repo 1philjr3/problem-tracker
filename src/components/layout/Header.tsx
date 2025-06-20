@@ -1,14 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { dataService } from '../../services/dataService';
-import { auth } from '../../firebase';
-import { signOut } from 'firebase/auth';
+import { cloudDataService } from '../../services/cloudDataService';
 import { getLevelInfo } from '../../types';
+import { ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
 
-const Header: React.FC = () => {
+export function Header() {
   const { currentUser, logout } = useAuth();
-  const [userStats, setUserStats] = useState<LocalUser | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [userStats, setUserStats] = useState<{
+    fullName: string;
+    points: number;
+    problems: number;
+    level: 'novice' | 'fighter' | 'master';
+  }>({
+    fullName: '',
+    points: 0,
+    problems: 0,
+    level: 'novice'
+  });
 
   useEffect(() => {
     if (currentUser) {
@@ -18,157 +26,113 @@ const Header: React.FC = () => {
 
   useEffect(() => {
     // Слушаем событие обновления статистики
-    const handleStatsUpdate = () => {
-      loadUserStats();
+    const handleUpdate = () => {
+      if (currentUser) {
+        loadUserStats();
+      }
     };
 
-    window.addEventListener('userStatsUpdated', handleStatsUpdate);
-    
-    return () => {
-      window.removeEventListener('userStatsUpdated', handleStatsUpdate);
-    };
+    window.addEventListener('userStatsUpdated', handleUpdate);
+    return () => window.removeEventListener('userStatsUpdated', handleUpdate);
   }, [currentUser]);
 
   const loadUserStats = async () => {
     if (!currentUser) return;
 
     try {
-      setLoading(true);
-
-      // Получаем правильное ФИО пользователя
-      const displayName = await dataService.getUserDisplayName(
-        currentUser.uid, 
+      // Получаем имя пользователя
+      const displayName = await cloudDataService.getUserDisplayName(
+        currentUser.uid,
         currentUser.email || ''
       );
 
-      // Сохраняем пользователя в базе если нужно
-      await dataService.saveUser({
-        id: currentUser.uid,
-        email: currentUser.email || '',
-        fullName: displayName,
-        isEmailVerified: currentUser.emailVerified,
-        joinedAt: new Date().toISOString(),
-        lastActive: new Date().toISOString()
-      });
+      // Получаем статистику из рейтинга
+      const leaderboard = await cloudDataService.getLeaderboard();
+      const userEntry = leaderboard.find(entry => entry.userId === currentUser.uid);
 
-      const userData = await dataService.getUser(currentUser.uid);
-      if (userData) {
+      if (userEntry) {
         setUserStats({
-          fullName: userData.fullName,
-          totalPoints: userData.totalPoints || 0,
-          level: getLevelInfo(userData.totalPoints || 0)
+          fullName: displayName,
+          points: userEntry.points,
+          problems: userEntry.answersCount,
+          level: userEntry.level
+        });
+      } else {
+        // Если пользователя нет в рейтинге, показываем начальные данные
+        setUserStats({
+          fullName: displayName,
+          points: 0,
+          problems: 0,
+          level: 'novice'
         });
       }
     } catch (error) {
       console.error('Ошибка загрузки статистики:', error);
-    } finally {
-      setLoading(false);
     }
-  };
-
-  const getLevelInfo = (level: string) => {
-    const levels: Record<string, { name: string; emoji: string; color: string }> = {
-      novice: { name: 'Новичок', emoji: '🏁', color: 'text-green-600' },
-      fighter: { name: 'Боец', emoji: '🛠️', color: 'text-blue-600' },
-      master: { name: 'Мастер', emoji: '🧠', color: 'text-purple-600' },
-    };
-    return levels[level] || levels.novice;
   };
 
   const handleLogout = async () => {
     try {
       await logout();
     } catch (error) {
-      console.error('Error logging out:', error);
+      console.error('Ошибка выхода:', error);
     }
   };
 
+  if (!currentUser) {
+    return null;
+  }
+
+  const levelInfo = getLevelInfo(userStats.level);
+
   return (
-    <header className="bg-white shadow-sm border-b">
+    <header className="bg-white shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center py-4">
-          {/* Логотип */}
-          <div className="flex items-center space-x-3">
-            <div className="text-3xl">🏭</div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">Система отчетов ПНР</h1>
-              <p className="text-sm text-gray-500">Геймификация производственных процессов</p>
-            </div>
+        <div className="flex justify-between items-center h-16">
+          <div className="flex items-center">
+            <h1 className="text-xl font-semibold text-gray-900">
+              🏭 Система ПНР
+            </h1>
           </div>
-
-          {/* Профиль пользователя */}
-          {currentUser && (
-            <div className="flex items-center space-x-4">
-              {/* Информация о пользователе */}
-              <div className="text-right">
-                {loading ? (
-                  <div className="flex items-center space-x-2">
-                    <div className="animate-pulse">
-                      <div className="h-4 bg-gray-300 rounded w-20 mb-1"></div>
-                      <div className="h-3 bg-gray-300 rounded w-32"></div>
-                    </div>
-                  </div>
-                ) : userStats ? (
-                  <>
-                    <div className="flex items-center space-x-2">
-                      <span className="font-medium text-gray-900">{userStats.fullName}</span>
-                      <span className="text-2xl">{getLevelInfo(userStats.level).emoji}</span>
-                    </div>
-                    <div className="flex items-center space-x-4 text-sm text-gray-500">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium bg-gray-100 ${getLevelInfo(userStats.level).color}`}>
-                        {getLevelInfo(userStats.level).name}
-                      </span>
-                      <span>💎 {userStats.totalPoints} баллов</span>
-                      <span>📝 {userStats.totalProblems} ответов</span>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex items-center space-x-2">
-                      <span className="font-medium text-gray-900">
-                        {currentUser.displayName || currentUser.email || 'Пользователь'}
-                      </span>
-                      <span className="text-2xl">🏁</span>
-                    </div>
-                    <div className="flex items-center space-x-4 text-sm text-gray-500">
-                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-green-600">
-                        Новичок
-                      </span>
-                      <span>💎 0 баллов</span>
-                      <span>📝 0 ответов</span>
-                    </div>
-                  </>
-                )}
+          
+          <div className="flex items-center space-x-4">
+            {/* Статистика пользователя */}
+            <div className="flex items-center space-x-3 text-sm">
+              <span className="text-gray-700 font-medium">
+                {userStats.fullName || currentUser.email}
+              </span>
+              <div className="flex items-center space-x-2">
+                <span className="text-2xl">{levelInfo.icon}</span>
+                <span className={`font-medium ${levelInfo.color}`}>
+                  {levelInfo.name}
+                </span>
               </div>
-
-              {/* Кнопка обновления */}
-              <button
-                onClick={loadUserStats}
-                disabled={loading}
-                className="text-gray-500 hover:text-gray-700 p-2 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50"
-                title="Обновить статистику"
-              >
-                <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </button>
-
-              {/* Кнопка выхода */}
-              <button
-                onClick={handleLogout}
-                className="text-gray-500 hover:text-gray-700 p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                title="Выйти"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013 3v1" />
-                </svg>
-              </button>
+              <div className="flex items-center space-x-1">
+                <span className="font-bold text-blue-600">{userStats.points}</span>
+                <span className="text-gray-500">баллов</span>
+              </div>
             </div>
-          )}
+
+            {/* Кнопка обновления */}
+            <button
+              onClick={loadUserStats}
+              className="text-gray-500 hover:text-gray-700"
+              title="Обновить статистику"
+            >
+              🔄
+            </button>
+
+            {/* Кнопка выхода */}
+            <button
+              onClick={handleLogout}
+              className="flex items-center space-x-2 text-gray-700 hover:text-gray-900"
+            >
+              <ArrowRightOnRectangleIcon className="h-5 w-5" />
+              <span className="hidden sm:inline">Выйти</span>
+            </button>
+          </div>
         </div>
       </div>
     </header>
   );
-};
-
-export default Header; 
+} 

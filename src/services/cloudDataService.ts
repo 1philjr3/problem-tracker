@@ -13,7 +13,7 @@ import {
   writeBatch,
   setDoc
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db } from '../config/firebase';
 import type { Problem, User, SeasonSettings, LeaderboardEntry } from '../types';
 
 class CloudDataService {
@@ -49,21 +49,6 @@ class CloudDataService {
     } catch (error) {
       console.error('Ошибка сохранения пользователя:', error);
       throw error;
-    }
-  }
-
-  async getUser(userId: string): Promise<User | null> {
-    try {
-      const userRef = doc(db, this.USERS_COLLECTION, userId);
-      const userSnap = await getDoc(userRef);
-      
-      if (userSnap.exists()) {
-        return { id: userSnap.id, ...userSnap.data() } as User;
-      }
-      return null;
-    } catch (error) {
-      console.error('Ошибка получения пользователя:', error);
-      return null;
     }
   }
 
@@ -117,7 +102,7 @@ class CloudDataService {
     }
   }
 
-  async getProblems(): Promise<Problem[]> {
+  async getAllProblems(): Promise<Problem[]> {
     try {
       const q = query(
         collection(db, this.PROBLEMS_COLLECTION),
@@ -135,20 +120,6 @@ class CloudDataService {
     }
   }
 
-  async getAllData() {
-    const [problems, users] = await Promise.all([
-      this.getProblems(),
-      this.getLeaderboard()
-    ]);
-    
-    return {
-      problems,
-      users,
-      seasons: [],
-      pointsHistory: []
-    };
-  }
-
   async addBonusPoints(problemId: string, bonusPoints: number, adminId: string, adminEmail: string): Promise<void> {
     const isAdminUser = await this.isAdmin(adminId, adminEmail);
     if (!isAdminUser) {
@@ -164,7 +135,7 @@ class CloudDataService {
       }
 
       const problemData = problemSnap.data() as Problem;
-      const newPoints = (problemData.points || 1) + bonusPoints;
+      const newPoints = problemData.points + bonusPoints;
 
       await updateDoc(problemRef, {
         points: newPoints
@@ -196,7 +167,7 @@ class CloudDataService {
 
       await updateDoc(problemRef, {
         reviewed: !problemData.reviewed,
-        reviewedAt: problemData.reviewed ? null : new Date(),
+        reviewedAt: problemData.reviewed ? null : new Date().toISOString(),
         reviewedBy: problemData.reviewed ? null : adminId
       });
     } catch (error) {
@@ -206,7 +177,7 @@ class CloudDataService {
   }
 
   // Рейтинг
-  async getLeaderboard(): Promise<User[]> {
+  async getLeaderboard(): Promise<LeaderboardEntry[]> {
     try {
       const q = query(
         collection(db, this.USERS_COLLECTION),
@@ -216,11 +187,18 @@ class CloudDataService {
       const querySnapshot = await getDocs(q);
       
       return querySnapshot.docs
-        .map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        } as User))
-        .filter(user => user.email !== 'admin@mail.ru'); // Исключаем админа
+        .map((doc, index) => {
+          const userData = doc.data();
+          return {
+            userId: userData.id,
+            fullName: userData.fullName,
+            points: userData.totalPoints,
+            answersCount: userData.totalProblems,
+            level: userData.level,
+            position: index + 1
+          };
+        })
+        .filter(user => user.fullName !== 'admin'); // Исключаем админа
     } catch (error) {
       console.error('Ошибка получения рейтинга:', error);
       return [];
@@ -316,41 +294,6 @@ class CloudDataService {
     }
   }
 
-  async finishSeason(adminId: string, adminEmail: string): Promise<{ report: any }> {
-    const isAdminUser = await this.isAdmin(adminId, adminEmail);
-    if (!isAdminUser) {
-      throw new Error('Доступ запрещен: только администратор может завершать сезон');
-    }
-
-    try {
-      const settingsRef = doc(db, this.SETTINGS_COLLECTION, 'current');
-      await updateDoc(settingsRef, {
-        isFinished: true,
-        isActive: false
-      });
-
-      // Получаем отчет о сезоне
-      const leaderboard = await this.getLeaderboard();
-      const problems = await this.getProblems();
-      
-      return {
-        report: {
-          totalParticipants: leaderboard.length,
-          totalProblems: problems.length,
-          totalPoints: leaderboard.reduce((sum, user) => sum + (user.totalPoints || 0), 0),
-          winners: leaderboard.slice(0, 3).map(user => ({
-            name: user.fullName,
-            points: user.totalPoints || 0,
-            problems: user.totalProblems || 0
-          }))
-        }
-      };
-    } catch (error) {
-      console.error('Ошибка завершения сезона:', error);
-      throw error;
-    }
-  }
-
   // Утилиты
   async isAdmin(userId: string, email: string): Promise<boolean> {
     return email === 'admin@mail.ru';
@@ -362,7 +305,7 @@ class CloudDataService {
       const userSnap = await getDoc(userRef);
       
       if (userSnap.exists()) {
-        const userData = userSnap.data() as User;
+        const userData = userSnap.data();
         const newTotalPoints = (userData.totalPoints || 0) + pointsDelta;
         const newTotalProblems = (userData.totalProblems || 0) + problemsDelta;
         
@@ -374,6 +317,15 @@ class CloudDataService {
           totalPoints: newTotalPoints,
           totalProblems: newTotalProblems,
           level: newLevel,
+          lastActive: serverTimestamp()
+        });
+      } else {
+        // Создаем пользователя если его нет
+        await setDoc(userRef, {
+          id: userId,
+          totalPoints: pointsDelta,
+          totalProblems: problemsDelta,
+          level: 'novice',
           lastActive: serverTimestamp()
         });
       }
@@ -412,25 +364,22 @@ class CloudDataService {
     }
   }
 
-  // Дополнительные методы для совместимости с локальным сервисом
-  async fixUserNames(): Promise<void> {
-    // В облачной версии имена обновляются автоматически
-    console.log('Имена пользователей синхронизированы');
-  }
+  async finishSeason(adminId: string, adminEmail: string): Promise<void> {
+    const isAdminUser = await this.isAdmin(adminId, adminEmail);
+    if (!isAdminUser) {
+      throw new Error('Доступ запрещен: только администратор может завершать сезон');
+    }
 
-  async getSeasonReport(): Promise<any> {
-    const leaderboard = await this.getLeaderboard();
-    const problems = await this.getProblems();
-    
-    return {
-      totalParticipants: leaderboard.length,
-      totalProblems: problems.length,
-      totalPoints: leaderboard.reduce((sum, user) => sum + (user.totalPoints || 0), 0)
-    };
-  }
-
-  exportData(): void {
-    console.log('Экспорт данных доступен только в локальной версии');
+    try {
+      const settingsRef = doc(db, this.SETTINGS_COLLECTION, 'current');
+      await updateDoc(settingsRef, {
+        isFinished: true,
+        isActive: false
+      });
+    } catch (error) {
+      console.error('Ошибка завершения сезона:', error);
+      throw error;
+    }
   }
 }
 

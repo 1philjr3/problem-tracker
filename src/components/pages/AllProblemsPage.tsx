@@ -1,366 +1,235 @@
 import React, { useState, useEffect } from 'react';
-import { dataService } from '../../services/dataService';
 import { useAuth } from '../../contexts/AuthContext';
-import { getCategoryInfo } from '../../types/index';
-import type { Problem, User } from '../../types/index';
+import { cloudDataService } from '../../services/cloudDataService';
+import { CheckCircleIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import type { Problem } from '../../types';
 
-const AllProblemsPage: React.FC = () => {
+export function AllProblemsPage() {
   const { currentUser } = useAuth();
   const [problems, setProblems] = useState<Problem[]>([]);
-  const [users, setUsers] = useState<Record<string, User>>({});
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [selectedUser, setSelectedUser] = useState<string>('all');
-  const [selectedStatus, setSelectedStatus] = useState<string>('all');
-  const [isAdmin, setIsAdmin] = useState(false);
   const [selectedProblem, setSelectedProblem] = useState<Problem | null>(null);
   const [bonusPoints, setBonusPoints] = useState<number>(1);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  const categories = [
+    { value: 'all', label: 'Все категории' },
+    { value: 'ТО', label: 'ТО' },
+    { value: 'Испытания', label: 'Испытания' },
+    { value: 'Аудит', label: 'Аудит' },
+    { value: 'Безопасность', label: 'Безопасность' },
+    { value: 'Качество', label: 'Качество' },
+    { value: 'Оборудование', label: 'Оборудование' },
+    { value: 'Процессы', label: 'Процессы' },
+    { value: 'Другое', label: 'Другое' }
+  ];
 
   useEffect(() => {
     checkAdminStatus();
-    loadData();
+    loadProblems();
   }, [currentUser]);
 
   const checkAdminStatus = async () => {
-    if (!currentUser) return;
-    
-    const adminStatus = await dataService.isAdmin(currentUser.uid, currentUser.email || '');
-    setIsAdmin(adminStatus);
+    if (currentUser) {
+      const adminStatus = await cloudDataService.isAdmin(currentUser.uid, currentUser.email || '');
+      setIsAdmin(adminStatus);
+    }
   };
 
-  const loadData = async () => {
+  const loadProblems = async () => {
     try {
       setLoading(true);
-      
-      // Загружаем проблемы и пользователей параллельно
-      const [problemsData, allData] = await Promise.all([
-        dataService.getProblems(),
-        dataService.getAllData()
-      ]);
-      
-      setProblems(problemsData);
-      
-      // Создаем словарь пользователей для быстрого доступа
-      const usersMap: Record<string, User> = {};
-      allData.users.forEach((user: User) => {
-        usersMap[user.id] = user;
-      });
-      setUsers(usersMap);
-      
+      const data = await cloudDataService.getAllProblems();
+      setProblems(data);
     } catch (error) {
-      console.error('Ошибка загрузки данных:', error);
+      console.error('Ошибка загрузки проблем:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  // Фильтрация проблем
-  const filteredProblems = problems.filter(problem => {
-    if (selectedCategory !== 'all' && problem.category !== selectedCategory) return false;
-    if (selectedUser !== 'all' && problem.authorId !== selectedUser) return false;
-    if (selectedStatus === 'reviewed' && !problem.reviewed) return false;
-    if (selectedStatus === 'unreviewed' && problem.reviewed) return false;
-    return true;
-  });
+  const handleAddBonusPoints = async (problem: Problem) => {
+    if (!currentUser || !isAdmin) return;
 
-  // Уникальные пользователи для фильтра
-  const uniqueUsers = Array.from(new Set(problems.map(p => p.authorId)))
-    .map(userId => ({
-      id: userId,
-      name: users[userId]?.fullName || 'Неизвестный пользователь'
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  // Статистика
-  const stats = {
-    total: problems.length,
-    reviewed: problems.filter(p => p.reviewed).length,
-    unreviewed: problems.filter(p => !p.reviewed).length,
-    totalPoints: problems.reduce((sum, p) => sum + (p.points || 1), 0)
+    try {
+      await cloudDataService.addBonusPoints(
+        problem.id, 
+        bonusPoints, 
+        currentUser.uid, 
+        currentUser.email || ''
+      );
+      
+      alert(`✅ Добавлено ${bonusPoints} бонусных баллов!`);
+      setSelectedProblem(null);
+      setBonusPoints(1);
+      await loadProblems();
+    } catch (error: any) {
+      alert(`❌ Ошибка: ${error.message}`);
+    }
   };
 
-  const handleAddBonusPoints = async (problemId: string, points: number) => {
+  const handleToggleReviewed = async (problem: Problem) => {
     if (!currentUser || !isAdmin) return;
-    
+
     try {
-      await dataService.addBonusPoints(
-        problemId,
-        points,
+      await cloudDataService.markProblemAsReviewed(
+        problem.id,
         currentUser.uid,
         currentUser.email || ''
       );
       
-      await loadData();
-      setSelectedProblem(null);
-      setBonusPoints(1);
-      
-      alert(`✅ Добавлено ${points} бонусных баллов!`);
-    } catch (error) {
-      console.error('Ошибка добавления баллов:', error);
-      alert('❌ Ошибка добавления баллов');
+      await loadProblems();
+    } catch (error: any) {
+      alert(`❌ Ошибка: ${error.message}`);
     }
   };
 
-  const handleToggleReviewed = async (problemId: string) => {
-    if (!currentUser || !isAdmin) return;
-    
-    try {
-      await dataService.markProblemAsReviewed(problemId, currentUser.uid, currentUser.email || '');
-      await loadData();
-    } catch (error) {
-      console.error('Ошибка обновления статуса:', error);
-      alert('❌ Ошибка обновления статуса');
-    }
-  };
-
-  const formatDate = (date: string | Date) => {
-    const d = typeof date === 'string' ? new Date(date) : date;
-    return d.toLocaleDateString('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  const filteredProblems = selectedCategory === 'all' 
+    ? problems 
+    : problems.filter(p => p.category === selectedCategory);
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-4xl mx-auto text-center py-12">
+        <h1 className="text-2xl font-bold text-gray-900 mb-4">Доступ запрещен</h1>
+        <p className="text-gray-600">Эта страница доступна только администраторам</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto p-4 space-y-6">
-      {/* Заголовок */}
-      <div className="text-center">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          📋 Все проблемы
-        </h1>
-        <p className="text-gray-600">
-          Полный список отправленных проблем от всех участников
-        </p>
+    <div className="max-w-6xl mx-auto">
+      <h1 className="text-3xl font-bold text-gray-900 mb-8">📋 Все проблемы</h1>
+
+      {/* Фильтр по категориям */}
+      <div className="mb-6">
+        <select
+          value={selectedCategory}
+          onChange={(e) => setSelectedCategory(e.target.value)}
+          className="block w-full sm:w-auto rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        >
+          {categories.map(cat => (
+            <option key={cat.value} value={cat.value}>
+              {cat.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Статистика */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">{stats.total}</div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="text-2xl font-bold text-blue-600">{problems.length}</div>
           <div className="text-sm text-gray-600">Всего проблем</div>
         </div>
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">{stats.reviewed}</div>
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="text-2xl font-bold text-green-600">
+            {problems.filter(p => p.reviewed).length}
+          </div>
           <div className="text-sm text-gray-600">Просмотрено</div>
         </div>
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 text-center">
-          <div className="text-2xl font-bold text-orange-600">{stats.unreviewed}</div>
-          <div className="text-sm text-gray-600">Не просмотрено</div>
-        </div>
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 text-center">
-          <div className="text-2xl font-bold text-purple-600">{stats.totalPoints}</div>
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="text-2xl font-bold text-purple-600">
+            {problems.reduce((sum, p) => sum + p.points, 0)}
+          </div>
           <div className="text-sm text-gray-600">Всего баллов</div>
-        </div>
-      </div>
-
-      {/* Фильтры */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-        <h3 className="font-semibold text-gray-900 mb-3">🔍 Фильтры</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Категория
-            </label>
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">Все категории</option>
-              <option value="maintenance">🔧 ТО</option>
-              <option value="testing">🧪 Испытания</option>
-              <option value="audit">📋 Аудит</option>
-              <option value="pnr">🏭 ПНР</option>
-              <option value="safety">⚠️ Безопасность</option>
-              <option value="quality">✅ Качество</option>
-              <option value="equipment">⚙️ Оборудование</option>
-              <option value="process">🔄 Процессы</option>
-              <option value="other">📝 Другое</option>
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Участник
-            </label>
-            <select
-              value={selectedUser}
-              onChange={(e) => setSelectedUser(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">Все участники</option>
-              {uniqueUsers.map(user => (
-                <option key={user.id} value={user.id}>
-                  {user.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Статус просмотра
-            </label>
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">Все</option>
-              <option value="reviewed">✅ Просмотренные</option>
-              <option value="unreviewed">⏳ Не просмотренные</option>
-            </select>
-          </div>
         </div>
       </div>
 
       {/* Список проблем */}
       <div className="space-y-4">
         {filteredProblems.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
-            <div className="text-6xl mb-4">🔍</div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              Проблемы не найдены
-            </h3>
-            <p className="text-gray-600">
-              Попробуйте изменить фильтры или дождитесь новых проблем
-            </p>
+          <div className="text-center py-12 bg-gray-50 rounded-lg">
+            <p className="text-gray-500">Нет проблем в выбранной категории</p>
           </div>
         ) : (
-          filteredProblems.map(problem => {
-            const author = users[problem.authorId];
-            const categoryInfo = getCategoryInfo(problem.category);
-            
-            return (
-              <div
-                key={problem.id}
-                className={`bg-white rounded-lg shadow-sm border ${
-                  problem.reviewed ? 'border-green-200' : 'border-gray-200'
-                } p-4 md:p-6`}
-              >
-                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-                  <div className="flex-1 space-y-3">
-                    {/* Заголовок и категория */}
-                    <div className="flex items-start gap-3">
-                      <span className="text-2xl">{categoryInfo.emoji}</span>
-                      <div className="flex-1">
-                        <h3 className="text-lg font-semibold text-gray-900">
-                          {problem.title}
-                        </h3>
-                        <div className="flex flex-wrap items-center gap-2 mt-1 text-sm">
-                          <span className="px-2 py-1 rounded-full text-xs font-medium"
-                            style={{
-                              backgroundColor: `${categoryInfo.color}20`,
-                              color: categoryInfo.color
-                            }}
-                          >
-                            {categoryInfo.name}
-                          </span>
-                          <span className="text-gray-500">•</span>
-                          <span className="text-gray-600">
-                            {author?.fullName || 'Неизвестный пользователь'}
-                          </span>
-                          <span className="text-gray-500">•</span>
-                          <span className="text-gray-500">
-                            {formatDate(problem.createdAt)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Описание */}
-                    <p className="text-gray-700 whitespace-pre-wrap">
-                      {problem.description}
-                    </p>
-
-                    {/* Изображения */}
-                    {problem.images && problem.images.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-3">
-                        {problem.images.map((image, index) => (
-                          <div key={index} className="relative group">
-                            <img
-                              src={image}
-                              alt={`Изображение ${index + 1}`}
-                              className="h-20 w-20 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-75"
-                              onClick={() => window.open(image, '_blank')}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Статус просмотра */}
+          filteredProblems.map((problem) => (
+            <div
+              key={problem.id}
+              className={`bg-white rounded-lg shadow p-6 ${
+                problem.reviewed ? 'opacity-75' : ''
+              }`}
+            >
+              <div className="flex justify-between items-start mb-4">
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                    {problem.title}
                     {problem.reviewed && (
-                      <div className="flex items-center gap-2 text-sm text-green-600">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                        <span>Просмотрено админом</span>
-                        {problem.reviewedAt && (
-                          <span className="text-gray-500">
-                            ({formatDate(problem.reviewedAt)})
-                          </span>
-                        )}
-                      </div>
+                      <CheckCircleIcon className="h-5 w-5 text-green-500" />
                     )}
-                  </div>
-
-                  {/* Баллы и действия */}
-                  <div className="flex flex-col items-end gap-3">
-                    <div className="text-center">
-                      <div className="text-3xl font-bold text-blue-600">
-                        {problem.points || 1}
-                      </div>
-                      <div className="text-sm text-gray-600">
-                        {problem.points === 1 ? 'балл' : problem.points && problem.points < 5 ? 'балла' : 'баллов'}
-                      </div>
-                    </div>
-
-                    {/* Админские действия */}
-                    {isAdmin && currentUser?.email === 'admin@mail.ru' && (
-                      <div className="flex flex-col gap-2">
-                        <button
-                          onClick={() => setSelectedProblem(problem)}
-                          className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-3 py-1 rounded-lg"
-                        >
-                          ➕ Добавить баллы
-                        </button>
-                        <button
-                          onClick={() => handleToggleReviewed(problem.id)}
-                          className={`text-sm px-3 py-1 rounded-lg ${
-                            problem.reviewed
-                              ? 'bg-gray-600 hover:bg-gray-700 text-white'
-                              : 'bg-green-600 hover:bg-green-700 text-white'
-                          }`}
-                        >
-                          {problem.reviewed ? '👁️ Снять отметку' : '✅ Отметить просмотренным'}
-                        </button>
-                      </div>
-                    )}
+                  </h3>
+                  <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
+                    <span>{problem.authorName}</span>
+                    <span>{new Date(problem.createdAt).toLocaleDateString('ru-RU')}</span>
+                    <span className="px-2 py-1 bg-gray-100 rounded">
+                      {problem.category}
+                    </span>
                   </div>
                 </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold text-blue-600">
+                    {problem.points}
+                  </div>
+                  <div className="text-xs text-gray-500">баллов</div>
+                </div>
               </div>
-            );
-          })
+
+              <p className="text-gray-700 mb-4">{problem.description}</p>
+
+              {/* Изображения */}
+              {problem.images.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+                  {problem.images.map((image, index) => (
+                    <img
+                      key={index}
+                      src={image}
+                      alt={`Фото ${index + 1}`}
+                      className="w-full h-24 object-cover rounded cursor-pointer hover:opacity-90"
+                      onClick={() => window.open(image, '_blank')}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Админские действия */}
+              <div className="flex flex-wrap gap-2 pt-4 border-t">
+                <button
+                  onClick={() => handleToggleReviewed(problem)}
+                  className={`px-3 py-1 rounded text-sm font-medium ${
+                    problem.reviewed
+                      ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      : 'bg-green-100 text-green-700 hover:bg-green-200'
+                  }`}
+                >
+                  {problem.reviewed ? '❌ Снять отметку' : '✅ Отметить как просмотренное'}
+                </button>
+                
+                <button
+                  onClick={() => setSelectedProblem(problem)}
+                  className="px-3 py-1 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded text-sm font-medium"
+                >
+                  ➕ Добавить бонусные баллы
+                </button>
+              </div>
+            </div>
+          ))
         )}
       </div>
 
-      {/* Модальное окно добавления баллов */}
-      {selectedProblem && isAdmin && (
+      {/* Модальное окно для добавления баллов */}
+      {selectedProblem && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            <h3 className="text-lg font-semibold mb-4">
               Добавить бонусные баллы
             </h3>
             <p className="text-sm text-gray-600 mb-4">
@@ -368,7 +237,7 @@ const AllProblemsPage: React.FC = () => {
             </p>
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Количество бонусных баллов (1-10)
+                Количество баллов (1-10)
               </label>
               <input
                 type="number"
@@ -376,41 +245,29 @@ const AllProblemsPage: React.FC = () => {
                 max="10"
                 value={bonusPoints}
                 onChange={(e) => setBonusPoints(Math.min(10, Math.max(1, parseInt(e.target.value) || 1)))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
               />
             </div>
             <div className="flex gap-3">
               <button
-                onClick={() => handleAddBonusPoints(selectedProblem.id, bonusPoints)}
-                className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg"
+                onClick={() => handleAddBonusPoints(selectedProblem)}
+                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700"
               >
-                ✅ Добавить
+                Добавить
               </button>
               <button
                 onClick={() => {
                   setSelectedProblem(null);
                   setBonusPoints(1);
                 }}
-                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded-lg"
+                className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300"
               >
-                ❌ Отмена
+                Отмена
               </button>
             </div>
           </div>
         </div>
       )}
-
-      {/* Кнопка экспорта */}
-      <div className="flex justify-center mt-8">
-        <button
-          onClick={() => dataService.exportData()}
-          className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg"
-        >
-          📥 Экспорт всех данных
-        </button>
-      </div>
     </div>
   );
-};
-
-export default AllProblemsPage; 
+} 
