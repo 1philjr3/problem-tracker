@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import AuthPage from './components/auth/AuthPage';
-import Header from './components/layout/Header';
+import { Header } from './components/layout/Header';
 import Navigation from './components/layout/Navigation';
-import HomePage from './components/pages/HomePage';
-import SubmitProblemPage from './components/pages/SubmitProblemPage';
-import LeaderboardPage from './components/pages/LeaderboardPage';
-import AllProblemsPage from './components/pages/AllProblemsPage';
+import { HomePage } from './components/pages/HomePage';
+import { SubmitProblemPage } from './components/pages/SubmitProblemPage';
+import { LeaderboardPage } from './components/pages/LeaderboardPage';
+import { AllProblemsPage } from './components/pages/AllProblemsPage';
 import './index.css';
 
 const AppContent: React.FC = () => {
-  const { currentUser, userProfile, loading } = useAuth();
+  const { currentUser, loading } = useAuth();
   const [activeTab, setActiveTab] = useState('home');
 
   // Показываем загрузку пока идет инициализация
@@ -18,7 +18,7 @@ const AppContent: React.FC = () => {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Загрузка...</p>
         </div>
       </div>
@@ -26,7 +26,7 @@ const AppContent: React.FC = () => {
   }
 
   // Показываем страницу авторизации если пользователь не вошел
-  if (!currentUser || !userProfile) {
+  if (!currentUser) {
     return <AuthPage />;
   }
 
