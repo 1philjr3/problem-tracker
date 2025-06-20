@@ -1,17 +1,15 @@
 // Базовые типы пользователей
-export type UserLevel = 'novice' | 'fighter' | 'master';
-
 export interface User {
   id: string;
   email: string;
   fullName: string;
-  level: UserLevel;
-  totalPoints: number;
-  totalProblems: number;
-  createdAt: Date;
-  joinedAt?: string;
-  lastActive?: string;
-  isAdmin?: boolean;
+  isEmailVerified: boolean;
+  totalPoints: number; // Общее количество баллов
+  totalProblems: number; // Количество отправленных проблем
+  level: 'novice' | 'fighter' | 'master';
+  joinedAt: string;
+  lastActive: string;
+  isAdmin?: boolean; // Для админских прав
 }
 
 // Категории проблем
@@ -36,58 +34,42 @@ export interface Problem {
   id: string;
   title: string;
   description: string;
-  category: string;
-  images: string[];
+  category: ProblemCategory;
   authorId: string;
   authorName: string;
-  points: number;
-  status: 'pending' | 'resolved';
-  reviewed: boolean;
-  reviewedAt?: string;
-  reviewedBy?: string;
-  createdAt: Date | string;
+  images: string[]; // Имена файлов изображений
+  points: number; // Баллы за проблему (1 + бонусы)
+  status: ProblemStatus;
+  reviewed: boolean; // Отмечена ли проблема как просмотренная админом
+  reviewedAt?: string; // Дата просмотра
+  reviewedBy?: string; // ID админа, который просмотрел
+  createdAt: string;
   seasonId: string;
-  adminNotes?: string;
+  adminNotes?: string; // Заметки администратора
 }
 
 // Сезоны соревнований
 export interface Season {
   id: string;
   name: string;
-  startDate: Date;
-  endDate: Date;
-  isActive: boolean;
-  isFinished: boolean;
-}
-
-export interface SeasonSettings {
-  currentSeason: string;
   startDate: string;
   endDate: string;
   isActive: boolean;
-  isFinished: boolean;
-  seasonStartDate?: string;
-  seasonEndDate?: string;
-}
-
-export interface LeaderboardEntry {
-  userId: string;
-  fullName: string;
-  points: number;
-  answersCount: number;
-  level: UserLevel;
-  position: number;
+  totalProblems: number;
+  totalParticipants: number;
+  createdAt: string;
 }
 
 // История начисления баллов
 export interface PointsHistory {
   id: string;
   userId: string;
+  problemId: string;
   points: number;
-  reason: string;
-  problemId?: string;
-  adminId?: string;
-  createdAt: Date;
+  reason: string; // Причина начисления (базовые баллы, бонус от админа и т.д.)
+  createdAt: string;
+  seasonId: string;
+  adminId?: string; // ID админа, если баллы добавлены вручную
 }
 
 // Константы уровней
@@ -165,21 +147,10 @@ export const CATEGORIES = {
 } as const;
 
 // Утилитарные функции
-export const getLevelInfo = (level: UserLevel) => {
-  switch (level) {
-    case 'master':
-      return { name: 'Мастер', icon: '🧠', color: 'text-purple-600' };
-    case 'fighter':
-      return { name: 'Боец', icon: '🛠️', color: 'text-blue-600' };
-    default:
-      return { name: 'Новичок', icon: '🏁', color: 'text-gray-600' };
-  }
-};
-
-export const getUserLevel = (points: number): UserLevel => {
-  if (points >= 10) return 'master';
-  if (points >= 5) return 'fighter';
-  return 'novice';
+export const getLevelInfo = (points: number) => {
+  if (points >= 10) return LEVELS.master;
+  if (points >= 5) return LEVELS.fighter;
+  return LEVELS.novice;
 };
 
 export const getCategoryInfo = (category: ProblemCategory) => {

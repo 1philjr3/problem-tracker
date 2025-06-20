@@ -10,11 +10,10 @@ import {
   where, 
   orderBy, 
   serverTimestamp,
-  writeBatch,
-  setDoc
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import type { Problem, User, SeasonSettings, LeaderboardEntry } from '../types';
+import { Problem, User, SeasonSettings, LeaderboardEntry } from '../types';
 
 class CloudDataService {
   // Коллекции Firestore
@@ -39,16 +38,24 @@ class CloudDataService {
   async saveUser(user: Omit<User, 'totalPoints' | 'totalProblems' | 'level'>): Promise<void> {
     try {
       const userRef = doc(db, this.USERS_COLLECTION, user.id);
-      await setDoc(userRef, {
+      await updateDoc(userRef, {
         ...user,
         totalPoints: 0,
         totalProblems: 0,
         level: 'novice',
         lastActive: serverTimestamp()
-      }, { merge: true });
+      });
     } catch (error) {
-      console.error('Ошибка сохранения пользователя:', error);
-      throw error;
+      // Если документ не существует, создаем новый
+      const userRef = doc(db, this.USERS_COLLECTION, user.id);
+      await updateDoc(userRef, {
+        ...user,
+        totalPoints: 0,
+        totalProblems: 0,
+        level: 'novice',
+        joinedAt: serverTimestamp(),
+        lastActive: serverTimestamp()
+      });
     }
   }
 
@@ -78,12 +85,12 @@ class CloudDataService {
     images: string[];
   }): Promise<Problem> {
     try {
-      const problem = {
+      const problem: Omit<Problem, 'id'> = {
         ...problemData,
         points: 1,
-        status: 'pending' as const,
+        status: 'pending',
         reviewed: false,
-        createdAt: new Date(),
+        createdAt: new Date().toISOString(),
         seasonId: 'current'
       };
 
@@ -187,15 +194,14 @@ class CloudDataService {
       const querySnapshot = await getDocs(q);
       
       return querySnapshot.docs
-        .map((doc, index) => {
-          const userData = doc.data();
+        .map(doc => {
+          const userData = doc.data() as User;
           return {
-            userId: userData.id,
+            id: userData.id,
             fullName: userData.fullName,
-            points: userData.totalPoints,
-            answersCount: userData.totalProblems,
-            level: userData.level,
-            position: index + 1
+            totalPoints: userData.totalPoints,
+            totalProblems: userData.totalProblems,
+            level: userData.level
           };
         })
         .filter(user => user.fullName !== 'admin'); // Исключаем админа
@@ -223,7 +229,7 @@ class CloudDataService {
           isFinished: false
         };
         
-        await setDoc(settingsRef, defaultSettings);
+        await updateDoc(settingsRef, defaultSettings);
         return defaultSettings;
       }
     } catch (error) {
@@ -305,9 +311,9 @@ class CloudDataService {
       const userSnap = await getDoc(userRef);
       
       if (userSnap.exists()) {
-        const userData = userSnap.data();
-        const newTotalPoints = (userData.totalPoints || 0) + pointsDelta;
-        const newTotalProblems = (userData.totalProblems || 0) + problemsDelta;
+        const userData = userSnap.data() as User;
+        const newTotalPoints = userData.totalPoints + pointsDelta;
+        const newTotalProblems = userData.totalProblems + problemsDelta;
         
         let newLevel: 'novice' | 'fighter' | 'master' = 'novice';
         if (newTotalPoints >= 10) newLevel = 'master';
@@ -317,15 +323,6 @@ class CloudDataService {
           totalPoints: newTotalPoints,
           totalProblems: newTotalProblems,
           level: newLevel,
-          lastActive: serverTimestamp()
-        });
-      } else {
-        // Создаем пользователя если его нет
-        await setDoc(userRef, {
-          id: userId,
-          totalPoints: pointsDelta,
-          totalProblems: problemsDelta,
-          level: 'novice',
           lastActive: serverTimestamp()
         });
       }

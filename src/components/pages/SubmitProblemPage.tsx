@@ -1,225 +1,303 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { PhotoIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
-import { cloudDataService } from '../../services/cloudDataService';
+import { localDataService } from '../../services/localDataService';
 
-const categories = [
-  'ТО',
-  'Испытания',
-  'Аудит',
-  'Безопасность',
-  'Качество',
-  'Оборудование',
-  'Процессы',
-  'Другое'
-];
-
-export function SubmitProblemPage() {
-  const navigate = useNavigate();
+const SubmitProblemPage: React.FC = () => {
   const { currentUser } = useAuth();
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [category, setCategory] = useState(categories[0]);
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    category: 'maintenance',
+  });
   const [images, setImages] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState('');
+
+  const categories = [
+    { value: 'maintenance', label: 'ТО', emoji: '🔧' },
+    { value: 'testing', label: 'Испытания', emoji: '🧪' },
+    { value: 'audit', label: 'Аудит', emoji: '🔊' },
+    { value: 'pnr', label: 'ПНР', emoji: '🏭' },
+    { value: 'safety', label: 'Безопасность', emoji: '⚠️' },
+    { value: 'quality', label: 'Качество', emoji: '✅' },
+    { value: 'equipment', label: 'Оборудование', emoji: '⚙️' },
+    { value: 'process', label: 'Процессы', emoji: '🔄' },
+    { value: 'other', label: 'Другое', emoji: '📝' },
+  ];
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    const validFiles = files.filter(file => {
-      const isValid = file.type.startsWith('image/');
-      const isUnderLimit = file.size <= 10 * 1024 * 1024; // 10MB
-      return isValid && isUnderLimit;
-    });
-
-    if (images.length + validFiles.length > 5) {
-      setError('Максимум 5 изображений');
-      return;
+    if (e.target.files) {
+      const newFiles = Array.from(e.target.files);
+      
+      // Проверяем размер файлов (макс 5MB)
+      const maxSize = 5 * 1024 * 1024;
+      const oversizedFiles = newFiles.filter(file => file.size > maxSize);
+      if (oversizedFiles.length > 0) {
+        alert('Размер изображения не должен превышать 5MB');
+        return;
+      }
+      
+      // Проверяем тип файлов
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+      const invalidFiles = newFiles.filter(file => !allowedTypes.includes(file.type));
+      if (invalidFiles.length > 0) {
+        alert('Поддерживаются только форматы: JPEG, PNG, WebP');
+        return;
+      }
+      
+      setImages(prev => [...prev, ...newFiles].slice(0, 5)); // Максимум 5 файлов
     }
-
-    setImages([...images, ...validFiles]);
-    setError('');
   };
 
   const removeImage = (index: number) => {
-    setImages(images.filter((_, i) => i !== index));
+    setImages(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentUser) return;
+    
+    if (!currentUser) {
+      alert('Необходимо войти в систему');
+      return;
+    }
+    
+    if (!formData.title.trim() || !formData.description.trim()) {
+      alert('Заполните все обязательные поля');
+      return;
+    }
 
     setIsSubmitting(true);
-    setError('');
 
     try {
-      // Конвертируем изображения в base64
-      const imagePromises = images.map(file => cloudDataService.saveImage(file));
-      const base64Images = await Promise.all(imagePromises);
+      // Сохраняем изображения
+      const imageNames: string[] = [];
+      for (const image of images) {
+        const imageName = await localDataService.saveImage(image);
+        imageNames.push(imageName);
+      }
 
-      // Отправляем проблему
-      await cloudDataService.addProblem({
-        title,
-        description,
-        category,
+      // Получаем правильное ФИО пользователя
+      const displayName = await localDataService.getUserDisplayName(
+        currentUser.uid, 
+        currentUser.email || ''
+      );
+
+      // Сначала убеждаемся что пользователь сохранен в локальной базе
+      await localDataService.saveUser({
+        id: currentUser.uid,
+        email: currentUser.email || '',
+        fullName: displayName,
+        joinedAt: new Date().toISOString(),
+        lastActive: new Date().toISOString(),
+      });
+
+      // Создаем проблему
+      const problem = await localDataService.addProblem({
+        title: formData.title.trim(),
+        description: formData.description.trim(),
+        category: formData.category,
         authorId: currentUser.uid,
-        authorName: currentUser.displayName || currentUser.email || 'Пользователь',
-        images: base64Images
+        authorName: displayName,
+        images: imageNames,
       });
 
-      // Перенаправляем на главную
-      navigate('/', { 
-        state: { 
-          message: 'Проблема успешно отправлена! Вам начислен 1 балл.',
-          type: 'success'
-        } 
-      });
+      // Показываем успех
+      alert(`✅ Проблема "${problem.title}" успешно отправлена! Вы получили +1 балл.`);
+      
+      // Уведомляем другие компоненты об обновлении данных
+      window.dispatchEvent(new CustomEvent('userStatsUpdated'));
+      
+      // Очищаем форму
+      setFormData({ title: '', description: '', category: 'maintenance' });
+      setImages([]);
+
+      console.log('🎉 Проблема сохранена в локальную базу данных!');
+
     } catch (error) {
       console.error('Ошибка отправки проблемы:', error);
-      setError('Не удалось отправить проблему. Попробуйте еще раз.');
+      alert('❌ Ошибка отправки проблемы. Попробуйте еще раз.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Сообщить о проблеме</h1>
-      
-      <form onSubmit={handleSubmit} className="space-y-6">
+    <div className="max-w-2xl mx-auto p-4 space-y-6">
+      {/* Заголовок */}
+      <div className="text-center">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">
+          📝 Сообщить о проблеме
+        </h1>
+        <p className="text-gray-600">
+          Опишите найденную проблему и получите баллы за активность
+        </p>
+      </div>
+
+      {/* Информация о системе */}
+      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+        <div className="flex items-start space-x-3">
+          <span className="text-2xl">⭐</span>
+          <div>
+            <h3 className="font-semibold text-green-800">Реальная система данных</h3>
+            <p className="text-sm text-green-600">
+              • За каждую проблему: +1 балл автоматически<br />
+              • Админ может добавить бонусные баллы за важные находки
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Форма */}
+      <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-6">
+        {/* Название проблемы */}
         <div>
-          <label htmlFor="title" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-2">
             Название проблемы *
           </label>
           <input
             type="text"
             id="title"
+            name="title"
+            value={formData.title}
+            onChange={handleInputChange}
             required
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-            placeholder="Кратко опишите проблему"
+            maxLength={100}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            placeholder="Кратко опишите проблему..."
           />
+          <div className="text-xs text-gray-500 mt-1">
+            {formData.title.length}/100 символов
+          </div>
         </div>
 
+        {/* Категория */}
         <div>
-          <label htmlFor="category" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-2">
             Категория *
           </label>
           <select
             id="category"
+            name="category"
+            value={formData.category}
+            onChange={handleInputChange}
             required
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
-            {categories.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
+            {categories.map(cat => (
+              <option key={cat.value} value={cat.value}>
+                {cat.emoji} {cat.label}
               </option>
             ))}
           </select>
         </div>
 
+        {/* Описание */}
         <div>
-          <label htmlFor="description" className="block text-sm font-medium text-gray-700">
-            Описание проблемы *
+          <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
+            Подробное описание *
           </label>
           <textarea
             id="description"
+            name="description"
+            value={formData.description}
+            onChange={handleInputChange}
             required
-            rows={4}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-            placeholder="Подробно опишите проблему, где и когда она возникла"
+            rows={6}
+            maxLength={1000}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+            placeholder="Детально опишите проблему: что произошло, где, когда, какие могут быть последствия..."
           />
+          <div className="text-xs text-gray-500 mt-1">
+            {formData.description.length}/1000 символов
+          </div>
         </div>
 
+        {/* Загрузка изображений */}
         <div>
-          <label className="block text-sm font-medium text-gray-700">
-            Фотографии (максимум 5)
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Фотографии (до 5 файлов, макс 5MB каждый)
           </label>
-          <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
-            <div className="space-y-1 text-center">
-              <PhotoIcon className="mx-auto h-12 w-12 text-gray-400" />
-              <div className="flex text-sm text-gray-600">
-                <label
-                  htmlFor="file-upload"
-                  className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500"
-                >
-                  <span>Загрузить фото</span>
-                  <input
-                    id="file-upload"
-                    name="file-upload"
-                    type="file"
-                    className="sr-only"
-                    multiple
-                    accept="image/*"
-                    onChange={handleImageChange}
-                  />
-                </label>
-                <p className="pl-1">или перетащите сюда</p>
+          <div className="space-y-4">
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleImageChange}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            
+            {images.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm text-gray-600">Выбранные файлы:</p>
+                <div className="grid grid-cols-1 gap-2">
+                  {images.map((file, index) => (
+                    <div key={index} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        <img
+                          src={URL.createObjectURL(file)}
+                          alt={`Превью ${index + 1}`}
+                          className="w-12 h-12 object-cover rounded border"
+                        />
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">{file.name}</p>
+                          <p className="text-xs text-gray-500">
+                            {(file.size / 1024).toFixed(1)} KB
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeImage(index)}
+                        className="text-red-500 hover:text-red-700 font-medium"
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <p className="text-xs text-gray-500">PNG, JPG до 10MB</p>
+            )}
+          </div>
+        </div>
+
+        {/* Кнопка отправки */}
+        <button
+          type="submit"
+          disabled={isSubmitting || !formData.title.trim() || !formData.description.trim()}
+          className={`w-full py-3 px-4 rounded-lg font-medium transition-colors ${
+            isSubmitting || !formData.title.trim() || !formData.description.trim()
+              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              : 'bg-blue-600 hover:bg-blue-700 text-white'
+          }`}
+        >
+          {isSubmitting ? (
+            <div className="flex items-center justify-center space-x-2">
+              <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+              <span>Сохранение...</span>
             </div>
-          </div>
-        </div>
-
-        {images.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {images.map((image, index) => (
-              <div key={index} className="relative">
-                <img
-                  src={URL.createObjectURL(image)}
-                  alt={`Preview ${index + 1}`}
-                  className="h-24 w-full object-cover rounded-lg"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeImage(index)}
-                  className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
-                >
-                  <XMarkIcon className="h-4 w-4" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {error && (
-          <div className="rounded-md bg-red-50 p-4">
-            <p className="text-sm text-red-800">{error}</p>
-          </div>
-        )}
-
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <p className="text-sm text-blue-800">
-            <strong>Награда:</strong> +1 балл за каждую отправленную проблему
-          </p>
-          <p className="text-xs text-blue-600 mt-1">
-            Администратор может добавить до 10 бонусных баллов за особо важные находки
-          </p>
-        </div>
-
-        <div className="flex justify-end space-x-3">
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-          >
-            Отмена
-          </button>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSubmitting ? 'Отправка...' : 'Отправить проблему'}
-          </button>
-        </div>
+          ) : (
+            '🚀 Отправить проблему (+1 балл)'
+          )}
+        </button>
       </form>
+
+      {/* Дополнительная информация */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h3 className="font-semibold text-gray-800 mb-2">💡 Советы для получения максимальных баллов:</h3>
+        <ul className="text-sm text-gray-600 space-y-1">
+          <li> Будьте максимально конкретны в описании проблемы</li>
+          <li> Прикрепляйте качественные фотографии для лучшего понимания</li>
+          <li> Указывайте точное местоположение и время обнаружения</li>
+          <li> Описывайте потенциальные риски и последствия</li>
+          <li> Админ может добавить до +10 бонусных баллов за особо важные находки</li>
+        </ul>
+      </div>
     </div>
   );
-} 
+};
+
+export default SubmitProblemPage; 
