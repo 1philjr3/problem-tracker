@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { cloudDataService } from '../../services/cloudDataService';
+import { localDataService } from '../../services/localDataService';
 
 // Локальная функция для определения уровня
 const getLevelInfo = (totalPoints: number) => {
@@ -57,36 +57,30 @@ const HomePage: React.FC = () => {
 
       const displayName = currentUser.displayName || currentUser.email?.split('@')[0] || 'Пользователь';
 
-      // Сначала убеждаемся что пользователь есть в Firebase
-      await cloudDataService.saveUser({
+      // Убеждаемся что пользователь есть в локальной базе
+      await localDataService.saveUser({
         id: currentUser.uid,
         email: currentUser.email || '',
         fullName: displayName,
-        // joinedAt и lastActive добавляются внутри cloudDataService
-      } as any);
+        joinedAt: new Date().toISOString(),
+        lastActive: new Date().toISOString(),
+      });
 
+      // Получаем данные пользователя
+      const userData = await localDataService.getUser(currentUser.uid);
+      
       // Получаем рейтинг для определения места
-      const leaderboard = await cloudDataService.getLeaderboard();
-      const userRank = leaderboard.findIndex((user: any) => 
-        (user.id === currentUser.uid) || 
-        (user.userId === currentUser.uid)
-      ) + 1;
-
-      // Находим данные пользователя
-      const userData = leaderboard.find((user: any) => 
-        (user.id === currentUser.uid) || 
-        (user.userId === currentUser.uid)
-      ) as any;
+      const leaderboard = await localDataService.getLeaderboard();
+      const userRank = leaderboard.findIndex(user => user.id === currentUser.uid) + 1;
 
       if (userData) {
-        const totalPoints = userData.totalPoints || userData.points || 0;
-        const levelInfo = getLevelInfo(totalPoints);
+        const levelInfo = getLevelInfo(userData.totalPoints);
         setUserStats({
-          totalPoints: totalPoints,
-          totalProblems: userData.totalProblems || userData.answersCount || 0,
+          totalPoints: userData.totalPoints,
+          totalProblems: userData.totalProblems,
           rank: userRank || leaderboard.length + 1,
           level: levelInfo,
-          fullName: userData.fullName || displayName
+          fullName: userData.fullName
         });
       } else {
         // Если пользователя нет, показываем начальные данные
@@ -121,14 +115,38 @@ const HomePage: React.FC = () => {
 
   const loadSeasonReport = async () => {
     try {
-      // getSeasonReport может не существовать в cloudDataService
-      const settings = await cloudDataService.getSeasonSettings();
-      setSeasonReport({
-        isFinished: settings.isFinished || false,
-        // Другие поля для отчета
-      });
+      // Проверяем, есть ли завершенный сезон в локальных данных
+      const data = await localDataService.getAllData();
+      const settings = data.settings;
+      
+      // Если сезон завершен, создаем отчет (пока просто не показываем отчет)
+      if (settings && (settings as any).isFinished) {
+        const leaderboard = await localDataService.getLeaderboard();
+        const problems = await localDataService.getProblems();
+        
+        const report = {
+          seasonName: settings.currentSeason || 'Сезон 2024',
+          startDate: settings.seasonStartDate,
+          endDate: settings.seasonEndDate,
+          totalParticipants: leaderboard.length,
+          totalProblems: problems.length,
+          totalPoints: leaderboard.reduce((sum, user) => sum + user.totalPoints, 0),
+          winners: leaderboard.map((user, index) => ({
+            rank: index + 1,
+            name: user.fullName,
+            points: user.totalPoints,
+            problems: user.totalProblems
+          })),
+          isFinished: true
+        };
+        
+        setSeasonReport(report);
+      } else {
+        setSeasonReport(null);
+      }
     } catch (error) {
       console.error('Ошибка загрузки отчета сезона:', error);
+      setSeasonReport(null);
     }
   };
 
@@ -299,36 +317,38 @@ const HomePage: React.FC = () => {
       </div>
 
       {/* Отчет о завершенном сезоне */}
-      {seasonReport && (
+      {seasonReport && seasonReport.winners && seasonReport.winners.length > 0 && (
         <div className="mb-6 sm:mb-8">
           <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-300 rounded-lg p-6">
             <div className="text-center mb-6">
               <div className="text-6xl mb-4">🏆</div>
               <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
-                Итоги игры "{seasonReport.seasonName}"
+                Итоги игры "{seasonReport.seasonName || 'Текущий сезон'}"
               </h2>
               <p className="text-gray-600">
-                {new Date(seasonReport.startDate).toLocaleDateString('ru-RU')} - {new Date(seasonReport.endDate).toLocaleDateString('ru-RU')}
+                {seasonReport.startDate ? new Date(seasonReport.startDate).toLocaleDateString('ru-RU') : 'Дата не указана'} - {seasonReport.endDate ? new Date(seasonReport.endDate).toLocaleDateString('ru-RU') : 'Дата не указана'}
               </p>
             </div>
 
             {/* Общая статистика */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
               <div className="bg-white rounded-lg p-4 text-center shadow-sm">
-                <div className="text-2xl font-bold text-blue-600">{seasonReport.totalParticipants}</div>
+                <div className="text-2xl font-bold text-blue-600">{seasonReport.totalParticipants || 0}</div>
                 <div className="text-sm text-gray-600">Участников</div>
               </div>
               <div className="bg-white rounded-lg p-4 text-center shadow-sm">
-                <div className="text-2xl font-bold text-green-600">{seasonReport.totalProblems}</div>
+                <div className="text-2xl font-bold text-green-600">{seasonReport.totalProblems || 0}</div>
                 <div className="text-sm text-gray-600">Проблем найдено</div>
               </div>
               <div className="bg-white rounded-lg p-4 text-center shadow-sm">
-                <div className="text-2xl font-bold text-purple-600">{seasonReport.totalPoints}</div>
+                <div className="text-2xl font-bold text-purple-600">{seasonReport.totalPoints || 0}</div>
                 <div className="text-sm text-gray-600">Баллов начислено</div>
               </div>
               <div className="bg-white rounded-lg p-4 text-center shadow-sm">
                 <div className="text-2xl font-bold text-orange-600">
-                  {Math.round(seasonReport.totalProblems / seasonReport.totalParticipants * 10) / 10}
+                  {seasonReport.totalProblems && seasonReport.totalParticipants ? 
+                    Math.round(seasonReport.totalProblems / seasonReport.totalParticipants * 10) / 10 : 0
+                  }
                 </div>
                 <div className="text-sm text-gray-600">Среднее на участника</div>
               </div>
@@ -345,11 +365,11 @@ const HomePage: React.FC = () => {
                   const colors = ['bg-yellow-100 border-yellow-300', 'bg-gray-100 border-gray-300', 'bg-orange-100 border-orange-300'];
                   
                   return (
-                    <div key={winner.rank} className={`bg-white rounded-lg p-4 text-center border-2 ${colors[index]} shadow-sm`}>
+                    <div key={winner.rank || index} className={`bg-white rounded-lg p-4 text-center border-2 ${colors[index]} shadow-sm`}>
                       <div className="text-4xl mb-2">{medals[index]}</div>
-                      <div className="font-bold text-gray-900">{winner.name}</div>
-                      <div className="text-2xl font-bold text-blue-600 my-1">{winner.points}</div>
-                      <div className="text-sm text-gray-600">{winner.problems} проблем</div>
+                      <div className="font-bold text-gray-900">{winner.name || 'Неизвестный'}</div>
+                      <div className="text-2xl font-bold text-blue-600 my-1">{winner.points || 0}</div>
+                      <div className="text-sm text-gray-600">{winner.problems || 0} проблем</div>
                     </div>
                   );
                 })}
@@ -357,19 +377,19 @@ const HomePage: React.FC = () => {
             </div>
 
             {/* Полный список победителей */}
-            {seasonReport.winners.length > 3 && (
+            {seasonReport.winners && seasonReport.winners.length > 3 && (
               <div className="bg-white rounded-lg p-4">
                 <h4 className="font-semibold text-gray-900 mb-3">📊 Полный рейтинг:</h4>
                 <div className="space-y-2">
-                  {seasonReport.winners.slice(3, 10).map((winner: any) => (
-                    <div key={winner.rank} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-b-0">
+                  {seasonReport.winners.slice(3, 10).map((winner: any, index: number) => (
+                    <div key={winner.rank || index} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-b-0">
                       <div className="flex items-center space-x-3">
-                        <span className="font-medium text-gray-600">#{winner.rank}</span>
-                        <span className="text-gray-900">{winner.name}</span>
+                        <span className="font-medium text-gray-600">#{winner.rank || (index + 4)}</span>
+                        <span className="text-gray-900">{winner.name || 'Неизвестный'}</span>
                       </div>
                       <div className="text-right">
-                        <div className="font-bold text-blue-600">{winner.points}</div>
-                        <div className="text-xs text-gray-500">{winner.problems} проблем</div>
+                        <div className="font-bold text-blue-600">{winner.points || 0}</div>
+                        <div className="text-xs text-gray-500">{winner.problems || 0} проблем</div>
                       </div>
                     </div>
                   ))}
