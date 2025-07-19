@@ -12,133 +12,220 @@ interface SurveyData {
   authorName?: string;
 }
 
+interface Problem {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  authorId: string;
+  authorName: string;
+  images: string[];
+  points: number;
+  status: 'pending' | 'reviewed';
+  reviewed: boolean;
+  createdAt: string;
+  adminNotes?: string;
+}
+
+interface User {
+  id: string;
+  email: string;
+  fullName: string;
+  totalPoints: number;
+  totalProblems: number;
+  level: 'novice' | 'fighter' | 'master';
+  joinedAt: string;
+  lastActive: string;
+}
+
 class GoogleSheetsAPIService {
-  private spreadsheetId: string = '1PHrQ8ZwjrOc4_9QuvpQltuMpuSUGIlcb96lp6korbTA';
-  private sheetName: string = 'Лист1';
-  
-  // URL для Google Apps Script Web App (нужно будет создать и развернуть)
-  // Пример: https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec
   private webAppUrl: string = '';
+  
+  constructor() {
+    // URL можно настроить через настройки
+    this.webAppUrl = localStorage.getItem('googleSheetsWebAppUrl') || '';
+  }
 
-  /**
-   * Добавляет данные опроса в Google Sheets через Web App
-   */
-  async addSurveyData(data: SurveyData): Promise<boolean> {
+  setWebAppUrl(url: string) {
+    this.webAppUrl = url;
+    localStorage.setItem('googleSheetsWebAppUrl', url);
+  }
+
+  getWebAppUrl(): string {
+    return this.webAppUrl;
+  }
+
+  // Добавить данные опроса
+  async addSurveyData(data: SurveyData): Promise<void> {
+    if (!this.webAppUrl) {
+      console.warn('Google Sheets Web App URL не настроен');
+      return;
+    }
+
     try {
-      // Добавляем временную метку
-      if (!data.timestamp) {
-        data.timestamp = new Date().toISOString();
-      }
-
-      // Если Web App URL не настроен, сохраняем локально
-      if (!this.webAppUrl) {
-        console.warn('⚠️ Google Apps Script Web App URL не настроен. Сохраняем данные локально.');
-        return this.saveToLocalStorage(data);
-      }
-
-      // Отправляем POST запрос на Web App
       const response = await fetch(this.webAppUrl, {
         method: 'POST',
-        mode: 'no-cors', // Для обхода CORS
+        mode: 'no-cors',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           action: 'addSurvey',
-          data: data
+          data: {
+            ...data,
+            timestamp: data.timestamp || new Date().toISOString()
+          }
         })
       });
 
       console.log('✅ Данные отправлены в Google Sheets');
-      return true;
     } catch (error) {
       console.error('❌ Ошибка отправки в Google Sheets:', error);
-      // Fallback на локальное хранение
-      return this.saveToLocalStorage(data);
+      throw error;
     }
   }
 
-  /**
-   * Сохраняет данные в localStorage как резервный вариант
-   */
-  private saveToLocalStorage(data: SurveyData): boolean {
-    try {
-      const storageKey = 'survey_data_queue';
-      const existingData = localStorage.getItem(storageKey);
-      const queue = existingData ? JSON.parse(existingData) : [];
-      
-      queue.push(data);
-      localStorage.setItem(storageKey, JSON.stringify(queue));
-      
-      console.log('💾 Данные сохранены локально для последующей синхронизации');
-      return true;
-    } catch (error) {
-      console.error('❌ Ошибка сохранения в localStorage:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Синхронизирует локально сохраненные данные с Google Sheets
-   */
-  async syncLocalData(): Promise<void> {
+  // Получить все проблемы
+  async getAllProblems(): Promise<Problem[]> {
     if (!this.webAppUrl) {
-      console.warn('⚠️ Синхронизация невозможна: Web App URL не настроен');
+      console.warn('Google Sheets Web App URL не настроен');
+      return [];
+    }
+
+    try {
+      const response = await fetch(`${this.webAppUrl}?action=getProblems`);
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        return data.problems || [];
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('❌ Ошибка получения проблем из Google Sheets:', error);
+      return [];
+    }
+  }
+
+  // Получить всех пользователей
+  async getAllUsers(): Promise<User[]> {
+    if (!this.webAppUrl) {
+      console.warn('Google Sheets Web App URL не настроен');
+      return [];
+    }
+
+    try {
+      const response = await fetch(`${this.webAppUrl}?action=getUsers`);
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        return data.users || [];
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('❌ Ошибка получения пользователей из Google Sheets:', error);
+      return [];
+    }
+  }
+
+  // Обновить данные пользователя
+  async updateUser(userId: string, updates: Partial<User>): Promise<void> {
+    if (!this.webAppUrl) {
+      console.warn('Google Sheets Web App URL не настроен');
       return;
     }
 
     try {
-      const storageKey = 'survey_data_queue';
-      const existingData = localStorage.getItem(storageKey);
-      
-      if (!existingData) {
-        console.log('✅ Нет данных для синхронизации');
-        return;
-      }
+      await fetch(this.webAppUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'updateUser',
+          userId: userId,
+          updates: updates
+        })
+      });
 
-      const queue = JSON.parse(existingData);
-      console.log(`📤 Синхронизация ${queue.length} записей...`);
-
-      for (const data of queue) {
-        await this.addSurveyData(data);
-      }
-
-      // Очищаем очередь после успешной синхронизации
-      localStorage.removeItem(storageKey);
-      console.log('✅ Синхронизация завершена');
+      console.log('✅ Данные пользователя обновлены в Google Sheets');
     } catch (error) {
-      console.error('❌ Ошибка синхронизации:', error);
+      console.error('❌ Ошибка обновления пользователя в Google Sheets:', error);
     }
   }
 
-  /**
-   * Получает количество несинхронизированных записей
-   */
-  getUnsyncedCount(): number {
+  // Добавить бонусные баллы
+  async addBonusPoints(problemId: string, bonusPoints: number, adminId: string): Promise<void> {
+    if (!this.webAppUrl) {
+      console.warn('Google Sheets Web App URL не настроен');
+      return;
+    }
+
     try {
-      const storageKey = 'survey_data_queue';
-      const existingData = localStorage.getItem(storageKey);
-      
-      if (!existingData) return 0;
-      
-      const queue = JSON.parse(existingData);
-      return queue.length;
-    } catch {
-      return 0;
+      await fetch(this.webAppUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'addBonusPoints',
+          problemId: problemId,
+          bonusPoints: bonusPoints,
+          adminId: adminId
+        })
+      });
+
+      console.log('✅ Бонусные баллы добавлены в Google Sheets');
+    } catch (error) {
+      console.error('❌ Ошибка добавления бонусных баллов в Google Sheets:', error);
     }
   }
 
-  /**
-   * Настраивает URL для Web App
-   */
-  setWebAppUrl(url: string): void {
-    this.webAppUrl = url;
-    console.log('✅ Web App URL настроен:', url);
+  // Проверить соединение
+  async checkConnection(): Promise<boolean> {
+    if (!this.webAppUrl) {
+      return false;
+    }
+
+    try {
+      const response = await fetch(`${this.webAppUrl}?action=ping`);
+      const data = await response.json();
+      return data.status === 'success';
+    } catch (error) {
+      console.error('❌ Ошибка проверки соединения с Google Sheets:', error);
+      return false;
+    }
+  }
+
+  // Синхронизировать все данные
+  async syncAllData(problems: Problem[], users: User[]): Promise<void> {
+    if (!this.webAppUrl) {
+      console.warn('Google Sheets Web App URL не настроен');
+      return;
+    }
+
+    try {
+      await fetch(this.webAppUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'syncAllData',
+          problems: problems,
+          users: users
+        })
+      });
+
+      console.log('✅ Все данные синхронизированы с Google Sheets');
+    } catch (error) {
+      console.error('❌ Ошибка синхронизации данных с Google Sheets:', error);
+    }
   }
 }
 
-// Экспортируем singleton экземпляр
-export const googleSheetsAPIService = new GoogleSheetsAPIService();
-
-// Экспортируем тип
-export type { SurveyData }; 
+export const googleSheetsAPIService = new GoogleSheetsAPIService(); 

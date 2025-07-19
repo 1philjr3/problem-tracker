@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { localDataService } from '../../services/localDataService';
+import { cloudDataService } from '../../services/cloudDataService';
 import { googleSheetsAPIService } from '../../services/googleSheetsAPIService';
 
 const SubmitProblemPage: React.FC = () => {
@@ -74,33 +74,19 @@ const SubmitProblemPage: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      // Сохраняем изображения
-      const imageNames: string[] = [];
+      // Сохраняем изображения в base64
       const imageBase64List: string[] = [];
       
       for (const image of images) {
-        const imageName = await localDataService.saveImage(image);
-        imageNames.push(imageName);
-        
-        // Конвертируем первое изображение в base64 для Google Sheets
-        if (imageBase64List.length === 0) {
-          const reader = new FileReader();
-          const base64 = await new Promise<string>((resolve) => {
-            reader.onload = () => resolve(reader.result as string);
-            reader.readAsDataURL(image);
-          });
-          imageBase64List.push(base64);
-        }
+        const base64 = await cloudDataService.saveImage(image);
+        imageBase64List.push(base64);
       }
 
       // Получаем правильное ФИО пользователя
-      const displayName = await localDataService.getUserDisplayName(
-        currentUser.uid, 
-        currentUser.email || ''
-      );
+      const displayName = currentUser.displayName || currentUser.email?.split('@')[0] || 'Пользователь';
 
-      // Сначала убеждаемся что пользователь сохранен в локальной базе
-      await localDataService.saveUser({
+      // Сначала убеждаемся что пользователь сохранен в Firestore
+      await cloudDataService.saveUser({
         id: currentUser.uid,
         email: currentUser.email || '',
         fullName: displayName,
@@ -108,14 +94,14 @@ const SubmitProblemPage: React.FC = () => {
         lastActive: new Date().toISOString(),
       });
 
-      // Создаем проблему
-      const problem = await localDataService.addProblem({
+      // Создаем проблему в Firestore
+      const problem = await cloudDataService.addProblem({
         title: formData.title.trim(),
         description: formData.description.trim(),
         category: formData.category,
         authorId: currentUser.uid,
         authorName: displayName,
-        images: imageNames,
+        images: imageBase64List,
       });
 
       // Отправляем данные в Google Sheets
@@ -123,7 +109,7 @@ const SubmitProblemPage: React.FC = () => {
         await googleSheetsAPIService.addSurveyData({
           title: formData.title.trim(),
           category: formData.category,
-          metric: 'Проблема ПНР', // Можно настроить отдельно
+          metric: 'Проблема ПНР',
           description: formData.description.trim(),
           imageBase64: imageBase64List[0] || '',
           authorId: currentUser.uid,
@@ -144,7 +130,7 @@ const SubmitProblemPage: React.FC = () => {
       setFormData({ title: '', description: '', category: 'maintenance' });
       setImages([]);
 
-      console.log('🎉 Проблема сохранена в локальную базу данных!');
+      console.log('🎉 Проблема сохранена в облачную базу данных Firebase!');
 
     } catch (error) {
       console.error('Ошибка отправки проблемы:', error);
