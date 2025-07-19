@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDataService } from '../../services/localDataService';
+import { googleSheetsAPIService } from '../../services/googleSheetsAPIService';
 
 const SubmitProblemPage: React.FC = () => {
   const { currentUser } = useAuth();
@@ -75,9 +76,21 @@ const SubmitProblemPage: React.FC = () => {
     try {
       // Сохраняем изображения
       const imageNames: string[] = [];
+      const imageBase64List: string[] = [];
+      
       for (const image of images) {
         const imageName = await localDataService.saveImage(image);
         imageNames.push(imageName);
+        
+        // Конвертируем первое изображение в base64 для Google Sheets
+        if (imageBase64List.length === 0) {
+          const reader = new FileReader();
+          const base64 = await new Promise<string>((resolve) => {
+            reader.onload = () => resolve(reader.result as string);
+            reader.readAsDataURL(image);
+          });
+          imageBase64List.push(base64);
+        }
       }
 
       // Получаем правильное ФИО пользователя
@@ -104,6 +117,22 @@ const SubmitProblemPage: React.FC = () => {
         authorName: displayName,
         images: imageNames,
       });
+
+      // Отправляем данные в Google Sheets
+      try {
+        await googleSheetsAPIService.addSurveyData({
+          title: formData.title.trim(),
+          category: formData.category,
+          metric: 'Проблема ПНР', // Можно настроить отдельно
+          description: formData.description.trim(),
+          imageBase64: imageBase64List[0] || '',
+          authorId: currentUser.uid,
+          authorName: displayName
+        });
+        console.log('✅ Данные также сохранены в Google Sheets');
+      } catch (error) {
+        console.error('⚠️ Не удалось сохранить в Google Sheets:', error);
+      }
 
       // Показываем успех
       alert(`✅ Проблема "${problem.title}" успешно отправлена! Вы получили +1 балл.`);

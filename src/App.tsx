@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import AuthPage from './components/auth/AuthPage';
 import Header from './components/layout/Header';
@@ -7,11 +7,26 @@ import HomePage from './components/pages/HomePage';
 import SubmitProblemPage from './components/pages/SubmitProblemPage';
 import LeaderboardPage from './components/pages/LeaderboardPage';
 import AllProblemsPage from './components/pages/AllProblemsPage';
+import SettingsPage from './components/pages/SettingsPage';
+import { googleSheetsAPIService } from './services/googleSheetsAPIService';
 import './index.css';
 
 const AppContent: React.FC = () => {
   const { currentUser, userProfile, loading } = useAuth();
   const [activeTab, setActiveTab] = useState('home');
+
+  // Инициализация Google Sheets сервиса при загрузке приложения
+  useEffect(() => {
+    const initGoogleSheets = () => {
+      const savedUrl = localStorage.getItem('google_sheets_web_app_url');
+      if (savedUrl) {
+        googleSheetsAPIService.setWebAppUrl(savedUrl);
+        console.log('✅ Google Sheets сервис инициализирован');
+      }
+    };
+    
+    initGoogleSheets();
+  }, []);
 
   // Показываем загрузку пока идет инициализация
   if (loading) {
@@ -67,6 +82,8 @@ const AppContent: React.FC = () => {
         return <LeaderboardPage />;
       case 'all-problems':
         return <AllProblemsPage />;
+      case 'settings':
+        return <SettingsPage />;
       case 'profile':
         return (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
