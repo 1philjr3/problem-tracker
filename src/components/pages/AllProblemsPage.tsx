@@ -1,9 +1,40 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { localDataService, type LocalProblem, type LocalUser } from '../../services/localDataService';
+import { cloudDataService } from '../../services/cloudDataService';
 
-interface ProblemWithUser extends LocalProblem {
-  user: LocalUser;
+// Локальные интерфейсы для этой страницы
+interface CloudProblem {
+  id: string;
+  title: string;
+  description?: string;
+  details?: string; // Problem из types.ts использует details
+  category: string;
+  authorId: string;
+  authorName: string;
+  images?: string[];
+  imageUrl?: string; // Problem из types.ts использует imageUrl
+  points?: number;
+  status?: 'pending' | 'reviewed';
+  reviewed?: boolean;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  createdAt: string | Date;
+  seasonId?: string;
+  adminNotes?: string;
+  bonusPoints?: number;
+}
+
+interface CloudUser {
+  id: string;
+  email: string;
+  fullName: string;
+  totalPoints: number;
+  totalProblems: number;
+  level: 'novice' | 'fighter' | 'master';
+}
+
+interface ProblemWithUser extends CloudProblem {
+  user: CloudUser;
 }
 
 const AllProblemsPage: React.FC = () => {
@@ -25,9 +56,8 @@ const AllProblemsPage: React.FC = () => {
 
   const checkAdminStatus = async () => {
     if (currentUser && currentUser.email === 'admin@mail.ru') {
-      const adminStatus = await localDataService.isAdmin(currentUser.uid, currentUser.email || '');
-      setIsAdmin(adminStatus);
-      console.log(`🔍 AllProblemsPage checkAdminStatus: email=${currentUser.email}, isAdmin=${adminStatus}`);
+      setIsAdmin(true);
+      console.log(`🔍 AllProblemsPage checkAdminStatus: email=${currentUser.email}, isAdmin=true`);
     } else {
       setIsAdmin(false);
     }
@@ -37,26 +67,62 @@ const AllProblemsPage: React.FC = () => {
     try {
       setLoading(true);
       
-      // Загружаем реальные данные
-      const [problemsData, allData] = await Promise.all([
-        localDataService.getProblems(),
-        localDataService.getAllData()
+      // Загружаем данные из Firebase
+      const [problemsData, usersData] = await Promise.all([
+        cloudDataService.getAllProblems(),
+        cloudDataService.getLeaderboard()
       ]);
 
       // Объединяем проблемы с данными пользователей
-      const problemsWithUsers: ProblemWithUser[] = problemsData.map(problem => {
-        const user = allData.users.find(u => u.id === problem.authorId);
+      const problemsWithUsers: ProblemWithUser[] = problemsData.map((problem: any) => {
+        // Ищем пользователя в списке лидеров
+        let userData: any = null;
+        for (const u of usersData) {
+          if (('userId' in u && u.userId === problem.authorId) || 
+              ('id' in u && u.id === problem.authorId)) {
+            userData = u;
+            break;
+          }
+        }
+        
+        // Нормализуем данные проблемы
+        const normalizedProblem: CloudProblem = {
+          id: problem.id,
+          title: problem.title,
+          description: problem.description || problem.details || '',
+          details: problem.details || problem.description || '',
+          category: problem.category,
+          authorId: problem.authorId,
+          authorName: problem.authorName,
+          images: problem.images || (problem.imageUrl ? [problem.imageUrl] : []),
+          imageUrl: problem.imageUrl,
+          points: problem.points || 1,
+          status: problem.status || 'pending',
+          reviewed: problem.reviewed || false,
+          reviewedAt: problem.reviewedAt,
+          reviewedBy: problem.reviewedBy,
+          createdAt: problem.createdAt,
+          seasonId: problem.seasonId,
+          adminNotes: problem.adminNotes,
+          bonusPoints: problem.bonusPoints
+        };
+
         return {
-          ...problem,
-          user: user || {
+          ...normalizedProblem,
+          user: userData ? {
+            id: userData.userId || userData.id || problem.authorId,
+            email: '', // LeaderboardEntry не содержит email
+            fullName: userData.fullName,
+            totalPoints: userData.points || userData.totalPoints || 0,
+            totalProblems: userData.answersCount || userData.totalProblems || 0,
+            level: userData.level || 'novice'
+          } : {
             id: problem.authorId,
             email: 'unknown@email.com',
             fullName: problem.authorName,
             totalPoints: 0,
             totalProblems: 0,
-            level: 'novice' as const,
-            joinedAt: new Date().toISOString(),
-            lastActive: new Date().toISOString(),
+            level: 'novice' as const
           }
         };
       });
@@ -95,7 +161,7 @@ const AllProblemsPage: React.FC = () => {
     return levels[level] || levels.novice;
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | Date) => {
     return new Date(dateString).toLocaleString('ru-RU', {
       day: '2-digit',
       month: '2-digit', 
@@ -123,11 +189,11 @@ const AllProblemsPage: React.FC = () => {
     }
 
     try {
-      await localDataService.addBonusPoints(
+      await cloudDataService.addBonusPoints(
         selectedProblem.id, 
         points, 
-        bonusReason, 
-        currentUser.uid
+        currentUser.uid,
+        currentUser.email || ''
       );
 
       alert(`✅ Добавлено ${points} бонусных баллов для "${selectedProblem.title}"!`);
@@ -154,7 +220,7 @@ const AllProblemsPage: React.FC = () => {
     }
 
     try {
-      await localDataService.markProblemAsReviewed(problemId, currentUser.uid, currentUser.email || '');
+      await cloudDataService.markProblemAsReviewed(problemId, currentUser.uid, currentUser.email || '');
       
       // Перезагружаем данные
       await loadProblems();
@@ -174,7 +240,7 @@ const AllProblemsPage: React.FC = () => {
       (reviewedFilter === 'not_reviewed' && !problem.reviewed);
     const matchesSearch = searchTerm === '' || 
       problem.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      problem.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (problem.description || problem.details || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       problem.user.fullName.toLowerCase().includes(searchTerm.toLowerCase());
     
     return matchesFilter && matchesReviewedFilter && matchesSearch;
@@ -386,7 +452,7 @@ const AllProblemsPage: React.FC = () => {
                   {/* Изображения и действия */}
                   <div className="lg:w-64 space-y-4">
                     {/* Изображения */}
-                    {problem.images.length > 0 && (
+                    {problem.images && problem.images.length > 0 && (
                       <div className="space-y-2">
                         <p className="text-sm font-medium text-gray-700">
                           📸 Изображения ({problem.images.length}):
@@ -435,12 +501,6 @@ const AllProblemsPage: React.FC = () => {
           className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
         >
           🔄 Обновить список
-        </button>
-        <button
-          onClick={() => localDataService.exportData()}
-          className="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
-        >
-          📦 Экспорт данных
         </button>
       </div>
 

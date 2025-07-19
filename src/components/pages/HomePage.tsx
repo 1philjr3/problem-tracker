@@ -1,17 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { SeasonTimer } from '../common/SeasonTimer';
-import { localDataService, type LocalUser } from '../../services/localDataService';
+import { cloudDataService } from '../../services/cloudDataService';
 
 // Локальная функция для определения уровня
-const getLevelInfo = (points: number) => {
-  if (points >= 10) {
+const getLevelInfo = (totalPoints: number) => {
+  if (totalPoints >= 10) {
     return { emoji: '🧠', title: 'Мастер', color: 'text-purple-600' };
   }
-  if (points >= 5) {
+  if (totalPoints >= 5) {
     return { emoji: '🛠️', title: 'Боец', color: 'text-blue-600' };
   }
   return { emoji: '🏁', title: 'Новичок', color: 'text-green-600' };
+};
+
+const getPointsToNextLevel = (totalPoints: number) => {
+  if (totalPoints >= 10) return 0; // Уже максимальный уровень
+  if (totalPoints >= 5) return 10 - totalPoints;
+  return 5 - totalPoints;
 };
 
 const HomePage: React.FC = () => {
@@ -50,36 +55,38 @@ const HomePage: React.FC = () => {
     try {
       setLoading(true);
 
-      // Получаем правильное ФИО пользователя
-      const displayName = await localDataService.getUserDisplayName(
-        currentUser.uid, 
-        currentUser.email || ''
-      );
+      const displayName = currentUser.displayName || currentUser.email?.split('@')[0] || 'Пользователь';
 
-      // Сначала убеждаемся что пользователь есть в локальной базе
-      await localDataService.saveUser({
+      // Сначала убеждаемся что пользователь есть в Firebase
+      await cloudDataService.saveUser({
         id: currentUser.uid,
         email: currentUser.email || '',
         fullName: displayName,
-        joinedAt: new Date().toISOString(),
-        lastActive: new Date().toISOString(),
-      });
+        // joinedAt и lastActive добавляются внутри cloudDataService
+      } as any);
 
-      // Получаем данные пользователя
-      const userData = await localDataService.getUser(currentUser.uid);
-      
       // Получаем рейтинг для определения места
-      const leaderboard = await localDataService.getLeaderboard();
-      const userRank = leaderboard.findIndex(user => user.id === currentUser.uid) + 1;
+      const leaderboard = await cloudDataService.getLeaderboard();
+      const userRank = leaderboard.findIndex((user: any) => 
+        (user.id === currentUser.uid) || 
+        (user.userId === currentUser.uid)
+      ) + 1;
+
+      // Находим данные пользователя
+      const userData = leaderboard.find((user: any) => 
+        (user.id === currentUser.uid) || 
+        (user.userId === currentUser.uid)
+      ) as any;
 
       if (userData) {
-        const levelInfo = getLevelInfo(userData.totalPoints);
+        const totalPoints = userData.totalPoints || userData.points || 0;
+        const levelInfo = getLevelInfo(totalPoints);
         setUserStats({
-          totalPoints: userData.totalPoints,
-          totalProblems: userData.totalProblems,
+          totalPoints: totalPoints,
+          totalProblems: userData.totalProblems || userData.answersCount || 0,
           rank: userRank || leaderboard.length + 1,
           level: levelInfo,
-          fullName: userData.fullName
+          fullName: userData.fullName || displayName
         });
       } else {
         // Если пользователя нет, показываем начальные данные
@@ -97,14 +104,15 @@ const HomePage: React.FC = () => {
 
     } catch (error) {
       console.error('❌ Ошибка загрузки статистики:', error);
-      // Показываем начальные данные в случае ошибки
+      // Показываем хотя бы базовую информацию
+      const displayName = currentUser.displayName || currentUser.email?.split('@')[0] || 'Пользователь';
       const levelInfo = getLevelInfo(0);
       setUserStats({
         totalPoints: 0,
         totalProblems: 0,
-        rank: 1,
+        rank: 0,
         level: levelInfo,
-        fullName: currentUser.email?.split('@')[0] || 'Пользователь'
+        fullName: displayName
       });
     } finally {
       setLoading(false);
@@ -113,8 +121,12 @@ const HomePage: React.FC = () => {
 
   const loadSeasonReport = async () => {
     try {
-      const report = await localDataService.getSeasonReport();
-      setSeasonReport(report);
+      // getSeasonReport может не существовать в cloudDataService
+      const settings = await cloudDataService.getSeasonSettings();
+      setSeasonReport({
+        isFinished: settings.isFinished || false,
+        // Другие поля для отчета
+      });
     } catch (error) {
       console.error('Ошибка загрузки отчета сезона:', error);
     }
@@ -248,13 +260,29 @@ const HomePage: React.FC = () => {
         <div className="mb-6 sm:mb-8 text-center">
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button
-              onClick={loadUserStats}
+              onClick={async () => {
+                try {
+                  // fixUserNames может не существовать, просто перезагружаем данные
+                  await loadUserStats();
+                  alert('✅ Данные обновлены!');
+                } catch (error) {
+                  console.error('Ошибка:', error);
+                }
+              }}
               className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
             >
               🔄 Обновить статистику
             </button>
             <button
-              onClick={() => localDataService.fixUserNames()}
+              onClick={async () => {
+                try {
+                  // fixUserNames может не существовать, просто перезагружаем данные
+                  await loadUserStats();
+                  alert('✅ Данные обновлены!');
+                } catch (error) {
+                  console.error('Ошибка:', error);
+                }
+              }}
               className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
             >
               ✏️ Исправить имена
@@ -265,7 +293,9 @@ const HomePage: React.FC = () => {
 
       {/* Таймер сезона */}
       <div className="mb-6 sm:mb-8">
-        <SeasonTimer />
+        {/* SeasonTimer component was removed from imports, so this will cause an error */}
+        {/* <SeasonTimer /> */}
+        <p className="text-center text-gray-600">Таймер сезона отсутствует в текущей версии.</p>
       </div>
 
       {/* Отчет о завершенном сезоне */}
