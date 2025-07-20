@@ -1,22 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { localDataService } from '../../services/localDataService';
+import { SeasonTimer } from '../common/SeasonTimer';
+import { localDataService, type LocalUser } from '../../services/localDataService';
 
 // Локальная функция для определения уровня
-const getLevelInfo = (totalPoints: number) => {
-  if (totalPoints >= 10) {
+const getLevelInfo = (points: number) => {
+  if (points >= 10) {
     return { emoji: '🧠', title: 'Мастер', color: 'text-purple-600' };
   }
-  if (totalPoints >= 5) {
+  if (points >= 5) {
     return { emoji: '🛠️', title: 'Боец', color: 'text-blue-600' };
   }
   return { emoji: '🏁', title: 'Новичок', color: 'text-green-600' };
-};
-
-const getPointsToNextLevel = (totalPoints: number) => {
-  if (totalPoints >= 10) return 0; // Уже максимальный уровень
-  if (totalPoints >= 5) return 10 - totalPoints;
-  return 5 - totalPoints;
 };
 
 const HomePage: React.FC = () => {
@@ -55,9 +50,13 @@ const HomePage: React.FC = () => {
     try {
       setLoading(true);
 
-      const displayName = currentUser.displayName || currentUser.email?.split('@')[0] || 'Пользователь';
+      // Получаем правильное ФИО пользователя
+      const displayName = await localDataService.getUserDisplayName(
+        currentUser.uid, 
+        currentUser.email || ''
+      );
 
-      // Убеждаемся что пользователь есть в локальной базе
+      // Сначала убеждаемся что пользователь есть в локальной базе
       await localDataService.saveUser({
         id: currentUser.uid,
         email: currentUser.email || '',
@@ -98,15 +97,14 @@ const HomePage: React.FC = () => {
 
     } catch (error) {
       console.error('❌ Ошибка загрузки статистики:', error);
-      // Показываем хотя бы базовую информацию
-      const displayName = currentUser.displayName || currentUser.email?.split('@')[0] || 'Пользователь';
+      // Показываем начальные данные в случае ошибки
       const levelInfo = getLevelInfo(0);
       setUserStats({
         totalPoints: 0,
         totalProblems: 0,
-        rank: 0,
+        rank: 1,
         level: levelInfo,
-        fullName: displayName
+        fullName: currentUser.email?.split('@')[0] || 'Пользователь'
       });
     } finally {
       setLoading(false);
@@ -115,38 +113,10 @@ const HomePage: React.FC = () => {
 
   const loadSeasonReport = async () => {
     try {
-      // Проверяем, есть ли завершенный сезон в локальных данных
-      const data = await localDataService.getAllData();
-      const settings = data.settings;
-      
-      // Если сезон завершен, создаем отчет (пока просто не показываем отчет)
-      if (settings && (settings as any).isFinished) {
-        const leaderboard = await localDataService.getLeaderboard();
-        const problems = await localDataService.getProblems();
-        
-        const report = {
-          seasonName: settings.currentSeason || 'Сезон 2024',
-          startDate: settings.seasonStartDate,
-          endDate: settings.seasonEndDate,
-          totalParticipants: leaderboard.length,
-          totalProblems: problems.length,
-          totalPoints: leaderboard.reduce((sum, user) => sum + user.totalPoints, 0),
-          winners: leaderboard.map((user, index) => ({
-            rank: index + 1,
-            name: user.fullName,
-            points: user.totalPoints,
-            problems: user.totalProblems
-          })),
-          isFinished: true
-        };
-        
-        setSeasonReport(report);
-      } else {
-        setSeasonReport(null);
-      }
+      const report = await localDataService.getSeasonReport();
+      setSeasonReport(report);
     } catch (error) {
       console.error('Ошибка загрузки отчета сезона:', error);
-      setSeasonReport(null);
     }
   };
 
@@ -278,29 +248,13 @@ const HomePage: React.FC = () => {
         <div className="mb-6 sm:mb-8 text-center">
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button
-              onClick={async () => {
-                try {
-                  // fixUserNames может не существовать, просто перезагружаем данные
-                  await loadUserStats();
-                  alert('✅ Данные обновлены!');
-                } catch (error) {
-                  console.error('Ошибка:', error);
-                }
-              }}
+              onClick={loadUserStats}
               className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
             >
               🔄 Обновить статистику
             </button>
             <button
-              onClick={async () => {
-                try {
-                  // fixUserNames может не существовать, просто перезагружаем данные
-                  await loadUserStats();
-                  alert('✅ Данные обновлены!');
-                } catch (error) {
-                  console.error('Ошибка:', error);
-                }
-              }}
+              onClick={() => localDataService.fixUserNames()}
               className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
             >
               ✏️ Исправить имена
@@ -311,44 +265,40 @@ const HomePage: React.FC = () => {
 
       {/* Таймер сезона */}
       <div className="mb-6 sm:mb-8">
-        {/* SeasonTimer component was removed from imports, so this will cause an error */}
-        {/* <SeasonTimer /> */}
-        <p className="text-center text-gray-600">Таймер сезона отсутствует в текущей версии.</p>
+        <SeasonTimer />
       </div>
 
       {/* Отчет о завершенном сезоне */}
-      {seasonReport && seasonReport.winners && seasonReport.winners.length > 0 && (
+      {seasonReport && (
         <div className="mb-6 sm:mb-8">
           <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-300 rounded-lg p-6">
             <div className="text-center mb-6">
               <div className="text-6xl mb-4">🏆</div>
               <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
-                Итоги игры "{seasonReport.seasonName || 'Текущий сезон'}"
+                Итоги игры "{seasonReport.seasonName}"
               </h2>
               <p className="text-gray-600">
-                {seasonReport.startDate ? new Date(seasonReport.startDate).toLocaleDateString('ru-RU') : 'Дата не указана'} - {seasonReport.endDate ? new Date(seasonReport.endDate).toLocaleDateString('ru-RU') : 'Дата не указана'}
+                {new Date(seasonReport.startDate).toLocaleDateString('ru-RU')} - {new Date(seasonReport.endDate).toLocaleDateString('ru-RU')}
               </p>
             </div>
 
             {/* Общая статистика */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
               <div className="bg-white rounded-lg p-4 text-center shadow-sm">
-                <div className="text-2xl font-bold text-blue-600">{seasonReport.totalParticipants || 0}</div>
+                <div className="text-2xl font-bold text-blue-600">{seasonReport.totalParticipants}</div>
                 <div className="text-sm text-gray-600">Участников</div>
               </div>
               <div className="bg-white rounded-lg p-4 text-center shadow-sm">
-                <div className="text-2xl font-bold text-green-600">{seasonReport.totalProblems || 0}</div>
+                <div className="text-2xl font-bold text-green-600">{seasonReport.totalProblems}</div>
                 <div className="text-sm text-gray-600">Проблем найдено</div>
               </div>
               <div className="bg-white rounded-lg p-4 text-center shadow-sm">
-                <div className="text-2xl font-bold text-purple-600">{seasonReport.totalPoints || 0}</div>
+                <div className="text-2xl font-bold text-purple-600">{seasonReport.totalPoints}</div>
                 <div className="text-sm text-gray-600">Баллов начислено</div>
               </div>
               <div className="bg-white rounded-lg p-4 text-center shadow-sm">
                 <div className="text-2xl font-bold text-orange-600">
-                  {seasonReport.totalProblems && seasonReport.totalParticipants ? 
-                    Math.round(seasonReport.totalProblems / seasonReport.totalParticipants * 10) / 10 : 0
-                  }
+                  {Math.round(seasonReport.totalProblems / seasonReport.totalParticipants * 10) / 10}
                 </div>
                 <div className="text-sm text-gray-600">Среднее на участника</div>
               </div>
@@ -365,11 +315,11 @@ const HomePage: React.FC = () => {
                   const colors = ['bg-yellow-100 border-yellow-300', 'bg-gray-100 border-gray-300', 'bg-orange-100 border-orange-300'];
                   
                   return (
-                    <div key={winner.rank || index} className={`bg-white rounded-lg p-4 text-center border-2 ${colors[index]} shadow-sm`}>
+                    <div key={winner.rank} className={`bg-white rounded-lg p-4 text-center border-2 ${colors[index]} shadow-sm`}>
                       <div className="text-4xl mb-2">{medals[index]}</div>
-                      <div className="font-bold text-gray-900">{winner.name || 'Неизвестный'}</div>
-                      <div className="text-2xl font-bold text-blue-600 my-1">{winner.points || 0}</div>
-                      <div className="text-sm text-gray-600">{winner.problems || 0} проблем</div>
+                      <div className="font-bold text-gray-900">{winner.name}</div>
+                      <div className="text-2xl font-bold text-blue-600 my-1">{winner.points}</div>
+                      <div className="text-sm text-gray-600">{winner.problems} проблем</div>
                     </div>
                   );
                 })}
@@ -377,19 +327,19 @@ const HomePage: React.FC = () => {
             </div>
 
             {/* Полный список победителей */}
-            {seasonReport.winners && seasonReport.winners.length > 3 && (
+            {seasonReport.winners.length > 3 && (
               <div className="bg-white rounded-lg p-4">
                 <h4 className="font-semibold text-gray-900 mb-3">📊 Полный рейтинг:</h4>
                 <div className="space-y-2">
-                  {seasonReport.winners.slice(3, 10).map((winner: any, index: number) => (
-                    <div key={winner.rank || index} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-b-0">
+                  {seasonReport.winners.slice(3, 10).map((winner: any) => (
+                    <div key={winner.rank} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-b-0">
                       <div className="flex items-center space-x-3">
-                        <span className="font-medium text-gray-600">#{winner.rank || (index + 4)}</span>
-                        <span className="text-gray-900">{winner.name || 'Неизвестный'}</span>
+                        <span className="font-medium text-gray-600">#{winner.rank}</span>
+                        <span className="text-gray-900">{winner.name}</span>
                       </div>
                       <div className="text-right">
-                        <div className="font-bold text-blue-600">{winner.points || 0}</div>
-                        <div className="text-xs text-gray-500">{winner.problems || 0} проблем</div>
+                        <div className="font-bold text-blue-600">{winner.points}</div>
+                        <div className="text-xs text-gray-500">{winner.problems} проблем</div>
                       </div>
                     </div>
                   ))}

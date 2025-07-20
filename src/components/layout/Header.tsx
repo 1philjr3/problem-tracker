@@ -1,15 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { cloudDataService } from '../../services/cloudDataService';
+import { localDataService, type LocalUser } from '../../services/localDataService';
 
 const Header: React.FC = () => {
   const { currentUser, logout } = useAuth();
-  const [userStats, setUserStats] = useState<{
-    fullName: string;
-    totalPoints: number;
-    totalProblems: number;
-    level: string;
-  } | null>(null);
+  const [userStats, setUserStats] = useState<LocalUser | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -36,47 +31,45 @@ const Header: React.FC = () => {
 
     try {
       setLoading(true);
-      
-      const displayName = currentUser.displayName || currentUser.email?.split('@')[0] || 'Пользователь';
 
-      // Получаем рейтинг
-      const leaderboard = await cloudDataService.getLeaderboard();
-      const userData = leaderboard.find((user: any) => 
-        (user.id === currentUser.uid) || 
-        (user.userId === currentUser.uid)
-      ) as any;
+      // Получаем правильное ФИО пользователя
+      const displayName = await localDataService.getUserDisplayName(
+        currentUser.uid, 
+        currentUser.email || ''
+      );
 
-      if (userData) {
-        const totalPoints = userData.totalPoints || userData.points || 0;
-        setUserStats({
-          fullName: userData.fullName || displayName,
-          totalPoints: totalPoints,
-          totalProblems: userData.totalProblems || userData.answersCount || 0,
-          level: userData.level || 'novice'
-        });
-      } else {
-        // Если пользователя нет в рейтинге, показываем базовые данные
-        setUserStats({
+      // Только для обычных пользователей (не админов) сохраняем в локальную базу
+      if (currentUser.email !== 'admin@mail.ru') {
+        await localDataService.saveUser({
+          id: currentUser.uid,
+          email: currentUser.email || '',
           fullName: displayName,
+          joinedAt: new Date().toISOString(),
+          lastActive: new Date().toISOString(),
+        });
+
+        // Получаем актуальные данные пользователя
+        const userData = await localDataService.getUser(currentUser.uid);
+        if (userData) {
+          setUserStats(userData);
+        }
+      } else {
+        // Для админа показываем специальные данные
+        setUserStats({
+          id: currentUser.uid,
+          email: currentUser.email,
+          fullName: 'Администратор',
           totalPoints: 0,
           totalProblems: 0,
-          level: 'novice'
+          level: 'master',
+          joinedAt: new Date().toISOString(),
+          lastActive: new Date().toISOString(),
+          isAdmin: true
         });
       }
 
-      console.log('✅ Статистика загружена в Header');
-
     } catch (error) {
       console.error('❌ Ошибка загрузки статистики в Header:', error);
-      
-      // В случае ошибки показываем хотя бы имя
-      const displayName = currentUser.displayName || currentUser.email?.split('@')[0] || 'Пользователь';
-      setUserStats({
-        fullName: displayName,
-        totalPoints: 0,
-        totalProblems: 0,
-        level: 'novice'
-      });
     } finally {
       setLoading(false);
     }

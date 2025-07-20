@@ -1,29 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { cloudDataService } from '../../services/cloudDataService';
+import { localDataService, type LocalUser, type SeasonSettings } from '../../services/localDataService';
 
-// Локальный интерфейс для настроек сезона
-interface SeasonSettings {
-  currentSeason: string;
-  seasonStartDate?: string;
-  seasonEndDate?: string;
-  isActive: boolean;
-  isFinished?: boolean;
-}
-
-// Расширенный тип для записи в рейтинге
-interface ExtendedLeaderboardEntry {
-  id: string;
-  fullName: string;
-  totalPoints: number;
-  totalProblems: number;
-  level: 'novice' | 'fighter' | 'master';
-  rank?: number;
+interface LeaderboardEntry extends LocalUser {
+  rank: number;
 }
 
 const LeaderboardPage: React.FC = () => {
   const { currentUser } = useAuth();
-  const [leaderboard, setLeaderboard] = useState<ExtendedLeaderboardEntry[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [seasonSettings, setSeasonSettings] = useState<SeasonSettings | null>(null);
@@ -36,7 +21,8 @@ const LeaderboardPage: React.FC = () => {
 
   const checkAdminStatus = async () => {
     if (currentUser && currentUser.email === 'admin@mail.ru') {
-      setIsAdmin(true);
+      const adminStatus = await localDataService.isAdmin(currentUser.uid, currentUser.email || '');
+      setIsAdmin(adminStatus);
     } else {
       setIsAdmin(false);
     }
@@ -44,8 +30,8 @@ const LeaderboardPage: React.FC = () => {
 
   const loadSeasonSettings = async () => {
     try {
-      const settings = await cloudDataService.getSeasonSettings();
-      setSeasonSettings(settings as SeasonSettings);
+      const settings = await localDataService.getSeasonSettings();
+      setSeasonSettings(settings);
     } catch (error) {
       console.error('Ошибка загрузки настроек сезона:', error);
     }
@@ -55,22 +41,11 @@ const LeaderboardPage: React.FC = () => {
     try {
       setLoading(true);
       
-      // Загружаем данные из Firebase
-      const users = await cloudDataService.getLeaderboard();
+      // Загружаем реальные данные из локальной базы
+      const users = await localDataService.getLeaderboard();
+      setLeaderboard(users as LeaderboardEntry[]);
       
-      // Преобразуем в расширенный формат с рангом
-      const extendedUsers: ExtendedLeaderboardEntry[] = users.map((user: any, index: number) => ({
-        id: (user as any).id || (user as any).userId || '',
-        fullName: user.fullName,
-        totalPoints: (user as any).totalPoints || (user as any).points || 0,
-        totalProblems: (user as any).totalProblems || (user as any).answersCount || 0,
-        level: user.level,
-        rank: index + 1
-      }));
-      
-      setLeaderboard(extendedUsers);
-      
-      console.log('✅ Загружен рейтинг:', extendedUsers.length, 'пользователей');
+      console.log('✅ Загружен рейтинг:', users.length, 'пользователей');
 
     } catch (error) {
       console.error('❌ Ошибка загрузки рейтинга:', error);
@@ -88,7 +63,7 @@ const LeaderboardPage: React.FC = () => {
 
     if (window.confirm(`Вы уверены, что хотите удалить пользователя "${userName}"? Это действие нельзя отменить.`)) {
       try {
-        await cloudDataService.deleteUser(userId, currentUser.uid, currentUser.email || '');
+        await localDataService.deleteUser(userId, currentUser.uid, currentUser.email || '');
         alert(`✅ Пользователь "${userName}" удален`);
         await loadLeaderboard();
         
@@ -108,7 +83,7 @@ const LeaderboardPage: React.FC = () => {
 
     if (window.confirm('Вы уверены, что хотите сбросить сезон? Все баллы и проблемы будут удалены!')) {
       try {
-        await cloudDataService.resetSeason(currentUser.uid, currentUser.email || '');
+        await localDataService.resetSeason(currentUser.uid, currentUser.email || '');
         alert('✅ Сезон сброшен!');
         await loadLeaderboard();
         await loadSeasonSettings();
@@ -122,18 +97,23 @@ const LeaderboardPage: React.FC = () => {
   };
 
   const handleFinishSeason = async () => {
-    if (!currentUser) return;
+    if (!currentUser || !isAdmin) {
+      alert('❌ Доступ запрещен');
+      return;
+    }
 
     if (window.confirm('Завершить сезон? Это покажет финальные результаты всем пользователям!')) {
       try {
-        await cloudDataService.finishSeason(currentUser.uid, currentUser.email || '');
-        alert(`🏆 Сезон завершен!`);
+        const { report } = await localDataService.finishSeason(currentUser.uid, currentUser.email || '');
+        alert(`🏆 Сезон "${report.seasonName}" завершен!\n\nПобедители:\n${report.winners.slice(0, 3).map((w: any) => `${w.rank}. ${w.name} - ${w.points} баллов`).join('\n')}`);
         
-        await loadSeasonSettings();
         await loadLeaderboard();
-      } catch (error) {
-        console.error('Ошибка завершения сезона:', error);
-        alert('❌ Ошибка завершения сезона');
+        await loadSeasonSettings();
+        
+        // Уведомляем другие компоненты
+        window.dispatchEvent(new CustomEvent('userStatsUpdated'));
+      } catch (error: any) {
+        alert(`❌ Ошибка завершения: ${error.message}`);
       }
     }
   };
@@ -145,7 +125,7 @@ const LeaderboardPage: React.FC = () => {
     }
 
     try {
-      await cloudDataService.updateSeasonSettings(newSettings, currentUser.uid, currentUser.email || '');
+      await localDataService.updateSeasonSettings(newSettings, currentUser.uid, currentUser.email || '');
       alert('✅ Настройки сезона обновлены!');
       await loadSeasonSettings();
     } catch (error: any) {
@@ -153,22 +133,17 @@ const LeaderboardPage: React.FC = () => {
     }
   };
 
-  const handleFixUserNames = async () => {
-    if (!currentUser) return;
-
-    if (window.confirm('Исправить имена пользователей? Это заменит email на ФИО где возможно.')) {
-      try {
-        setLoading(true);
-        // Функция может быть не реализована в cloudDataService
-        console.log('Исправление имен пользователей...');
-        await loadLeaderboard(); // Просто перезагружаем рейтинг
-        alert('✅ Рейтинг обновлен!');
-      } catch (error) {
-        console.error('Ошибка:', error);
-        alert('❌ Ошибка обновления');
-      } finally {
-        setLoading(false);
-      }
+  const fixUserNames = async () => {
+    try {
+      setLoading(true);
+      await localDataService.fixUserNames();
+      await loadLeaderboard(); // Перезагружаем рейтинг
+      alert('✅ Имена пользователей исправлены!');
+    } catch (error) {
+      console.error('❌ Ошибка исправления имен:', error);
+      alert('❌ Ошибка исправления имен');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -194,17 +169,12 @@ const LeaderboardPage: React.FC = () => {
     return 'text-gray-600 bg-gray-50 border-gray-200';
   };
 
-  const formatDate = (dateString: string | undefined | null) => {
-    if (!dateString) return 'Недавно';
-    try {
-      return new Date(dateString).toLocaleDateString('ru-RU', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric'
-      });
-    } catch {
-      return 'Недавно';
-    }
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
   };
 
   const handleActivateSeason = async () => {
@@ -215,7 +185,7 @@ const LeaderboardPage: React.FC = () => {
 
     if (window.confirm('Активировать игру? Участники смогут отправлять проблемы и получать баллы!')) {
       try {
-        await cloudDataService.updateSeasonSettings({ isActive: true }, currentUser.uid, currentUser.email || '');
+        await localDataService.updateSeasonSettings({ isActive: true }, currentUser.uid, currentUser.email || '');
         alert('🚀 Игра активирована! Участники могут начинать отправлять проблемы!');
         await loadSeasonSettings();
         
@@ -235,7 +205,7 @@ const LeaderboardPage: React.FC = () => {
 
     if (window.confirm('Приостановить игру? Участники не смогут отправлять новые проблемы!')) {
       try {
-        await cloudDataService.updateSeasonSettings({ isActive: false }, currentUser.uid, currentUser.email || '');
+        await localDataService.updateSeasonSettings({ isActive: false }, currentUser.uid, currentUser.email || '');
         alert('⏸️ Игра приостановлена!');
         await loadSeasonSettings();
         
@@ -368,7 +338,7 @@ const LeaderboardPage: React.FC = () => {
 
     // Сохраняем настройки
     try {
-      await cloudDataService.updateSeasonSettings({
+      await localDataService.updateSeasonSettings({
         currentSeason: seasonName,
         seasonStartDate: startDateTime,
         seasonEndDate: endDateTime,
@@ -460,9 +430,9 @@ const LeaderboardPage: React.FC = () => {
               <div>
                 <p><strong>📅 Период проведения:</strong></p>
                 <p className="text-xs text-gray-600">
-                  🟢 Начало: {seasonSettings.seasonStartDate ? new Date(seasonSettings.seasonStartDate).toLocaleDateString('ru-RU') : 'Не указано'} {seasonSettings.seasonStartDate ? `в ${new Date(seasonSettings.seasonStartDate).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})}` : ''}
+                  🟢 Начало: {new Date(seasonSettings.seasonStartDate).toLocaleDateString('ru-RU')} в {new Date(seasonSettings.seasonStartDate).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})}
                   <br />
-                  🏁 Окончание: {seasonSettings.seasonEndDate ? new Date(seasonSettings.seasonEndDate).toLocaleDateString('ru-RU') : 'Не указано'} {seasonSettings.seasonEndDate ? `в ${new Date(seasonSettings.seasonEndDate).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})}` : ''}
+                  🏁 Окончание: {new Date(seasonSettings.seasonEndDate).toLocaleDateString('ru-RU')} в {new Date(seasonSettings.seasonEndDate).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})}
                 </p>
               </div>
             </div>
@@ -575,10 +545,10 @@ const LeaderboardPage: React.FC = () => {
               return (
                 <div
                   key={user.id}
-                  className={`bg-white rounded-lg shadow-sm p-4 sm:p-6 text-center border-2 ${getRankColor(user.rank || 0)}`}
+                  className={`bg-white rounded-lg shadow-sm p-4 sm:p-6 text-center border-2 ${getRankColor(user.rank)}`}
                 >
                   <div className="text-3xl sm:text-4xl mb-2">
-                    {getRankEmoji(user.rank || 0)}
+                    {getRankEmoji(user.rank)}
                   </div>
                   <div className="text-lg sm:text-xl font-bold text-gray-900 mb-1">
                     {user.fullName}
@@ -596,7 +566,7 @@ const LeaderboardPage: React.FC = () => {
                     {user.totalProblems} проблем
                   </div>
                   <div className="text-xs text-gray-500 mt-2">
-                    Участник
+                    С {formatDate(user.joinedAt)}
                   </div>
                 </div>
               );
@@ -638,7 +608,7 @@ const LeaderboardPage: React.FC = () => {
                   <div className="flex items-center space-x-3 sm:space-x-4 flex-1">
                     <div className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10">
                       <span className="text-lg sm:text-xl">
-                        {getRankEmoji(user.rank || 0)}
+                        {getRankEmoji(user.rank)}
                       </span>
                     </div>
                     
@@ -650,15 +620,14 @@ const LeaderboardPage: React.FC = () => {
                       <div className="flex-1">
                         <div className="text-sm sm:text-base font-semibold text-gray-900 flex items-center gap-2">
                           {user.fullName}
-                          {/* isAdmin is not part of ExtendedLeaderboardEntry, so this will cause a type error */}
-                          {/* {user.isAdmin && (
+                          {user.isAdmin && (
                             <span className="bg-red-100 text-red-600 text-xs px-2 py-1 rounded-full font-medium">
                               👑 Админ
                             </span>
-                          )} */}
+                          )}
                         </div>
                         <div className="text-xs sm:text-sm text-gray-600">
-                          {levelInfo.name} • {user.totalProblems} проблем
+                          {levelInfo.name} • {user.totalProblems} проблем • с {formatDate(user.joinedAt)}
                         </div>
                       </div>
                     </div>
@@ -675,7 +644,7 @@ const LeaderboardPage: React.FC = () => {
                     </div>
                     
                     {/* Админские кнопки */}
-                    {isAdmin && (
+                    {isAdmin && !user.isAdmin && (
                       <button
                         onClick={() => handleDeleteUser(user.id, user.fullName)}
                         className="bg-red-500 hover:bg-red-600 text-white text-xs font-medium py-1 px-2 rounded transition-colors ml-2"
@@ -712,22 +681,35 @@ const LeaderboardPage: React.FC = () => {
       </div>
 
       {/* Кнопки действий */}
-      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+      <div className="mt-6 sm:mt-8 flex flex-col sm:flex-row gap-3 sm:gap-4">
         <button
           onClick={loadLeaderboard}
           className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
         >
           🔄 Обновить рейтинг
         </button>
-        {isAdmin && (
+        {isAdmin ? (
           <>
             <button
-              onClick={handleFixUserNames}
+              onClick={fixUserNames}
               className="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
             >
-              🔧 Обновить данные
+              ✏️ Исправить имена
+            </button>
+            <button
+              onClick={() => localDataService.exportData()}
+              className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+            >
+              📦 Экспорт данных
             </button>
           </>
+        ) : (
+          <button
+            onClick={() => localDataService.exportData()}
+            className="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+          >
+            📦 Экспорт данных
+          </button>
         )}
       </div>
     </div>
