@@ -26,28 +26,10 @@ const Navigation: React.FC<NavigationProps> = ({ activeTab, onTabChange }) => {
 
   const tabs = [
     {
-      id: 'home',
-      label: 'Главная',
-      emoji: '🏠',
-      description: 'Статистика и новости'
-    },
-    {
       id: 'submit',
-      label: 'Отправить',
+      label: 'Отправить проблему',
       emoji: '📝',
       description: 'Сообщить о проблеме'
-    },
-    {
-      id: 'leaderboard',
-      label: 'Рейтинг',
-      emoji: '🏆',
-      description: 'Таблица лидеров'
-    },
-    {
-      id: 'all-problems',
-      label: 'Все проблемы',
-      emoji: '📋',
-      description: 'Просмотр всех проблем'
     }
   ];
 
@@ -64,7 +46,7 @@ const Navigation: React.FC<NavigationProps> = ({ activeTab, onTabChange }) => {
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-16 z-40">
       <div className="max-w-7xl mx-auto px-4">
-        {/* Мобильная навигация - горизонтальная прокрутка */}
+        {/* Навигация */}
         <div className="flex space-x-1 overflow-x-auto scrollbar-hide sm:justify-center py-2">
           {tabs.map((tab) => (
             <button

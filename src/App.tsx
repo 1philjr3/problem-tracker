@@ -3,17 +3,14 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import AuthPage from './components/auth/AuthPage';
 import Header from './components/layout/Header';
 import Navigation from './components/layout/Navigation';
-import HomePage from './components/pages/HomePage';
 import SubmitProblemPage from './components/pages/SubmitProblemPage';
-import LeaderboardPage from './components/pages/LeaderboardPage';
-import AllProblemsPage from './components/pages/AllProblemsPage';
 import SettingsPage from './components/pages/SettingsPage';
 import { googleSheetsAPIService } from './services/googleSheetsAPIService';
 import './index.css';
 
 const AppContent: React.FC = () => {
   const { currentUser, userProfile, loading } = useAuth();
-  const [activeTab, setActiveTab] = useState('home');
+  const [activeTab, setActiveTab] = useState('submit'); // Делаем страницу отправки стартовой
 
   // Инициализация Google Sheets сервиса при загрузке приложения
   useEffect(() => {
@@ -45,56 +42,14 @@ const AppContent: React.FC = () => {
     return <AuthPage />;
   }
 
-  // Временно отключим проверку email для тестирования
-  // Раскомментируйте после настройки Firebase
-  /*
-  if (!currentUser.emailVerified) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-md w-full space-y-8">
-          <div className="card p-8 text-center">
-            <div className="text-6xl mb-4">📧</div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Подтвердите email</h2>
-            <p className="text-gray-600 mb-6">
-              Мы отправили письмо с подтверждением на ваш email. 
-              Пожалуйста, перейдите по ссылке в письме, чтобы подтвердить свой аккаунт.
-            </p>
-            <button
-              onClick={() => window.location.reload()}
-              className="btn-primary"
-            >
-              Я подтвердил email
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  */
-
   const renderContent = () => {
     switch (activeTab) {
-      case 'home':
-        return <HomePage />;
       case 'submit':
         return <SubmitProblemPage />;
-      case 'leaderboard':
-        return <LeaderboardPage />;
-      case 'all-problems':
-        return <AllProblemsPage />;
       case 'settings':
         return <SettingsPage />;
-      case 'profile':
-        return (
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <div className="text-center">
-              <h1 className="text-3xl font-bold text-gray-900 mb-4">👤 Профиль</h1>
-              <p className="text-gray-600 mb-8">Страница профиля в разработке...</p>
-            </div>
-          </div>
-        );
       default:
-        return <HomePage />;
+        return <SubmitProblemPage />; // По умолчанию показываем страницу отправки
     }
   };
 

@@ -9,6 +9,7 @@ const SubmitProblemPage: React.FC = () => {
     title: '',
     description: '',
     category: 'maintenance',
+    metric: 'design'
   });
   const [images, setImages] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -22,6 +23,15 @@ const SubmitProblemPage: React.FC = () => {
     { value: 'quality', label: 'Качество', emoji: '✅' },
     { value: 'equipment', label: 'Оборудование', emoji: '⚙️' },
     { value: 'process', label: 'Процессы', emoji: '🔄' },
+    { value: 'warranty', label: 'Гарантия', emoji: '🛡️' },
+    { value: 'other', label: 'Другое', emoji: '📝' },
+  ];
+
+  const metrics = [
+    { value: 'design', label: 'Проектирование', emoji: '📐' },
+    { value: 'installation', label: 'Монтаж', emoji: '🔨' },
+    { value: 'interaction', label: 'Взаимодействие', emoji: '🤝' },
+    { value: 'documentation', label: 'Документация', emoji: '📋' },
     { value: 'other', label: 'Другое', emoji: '📝' },
   ];
 
@@ -74,77 +84,46 @@ const SubmitProblemPage: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      // Сохраняем изображения
-      const imageNames: string[] = [];
-      const imageBase64List: string[] = [];
-      
-      for (const image of images) {
-        const imageName = await localDataService.saveImage(image);
-        imageNames.push(imageName);
-        
-        // Конвертируем первое изображение в base64 для Google Sheets
-        if (imageBase64List.length === 0) {
-          const reader = new FileReader();
-          const base64 = await new Promise<string>((resolve) => {
-            reader.onload = () => resolve(reader.result as string);
-            reader.readAsDataURL(image);
-          });
-          imageBase64List.push(base64);
-        }
+      // Конвертируем первое изображение в base64 для Google Sheets
+      let imageBase64 = '';
+      if (images.length > 0) {
+        const reader = new FileReader();
+        imageBase64 = await new Promise<string>((resolve) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(images[0]);
+        });
       }
 
-      // Получаем правильное ФИО пользователя
+      // Получаем имя пользователя
       const displayName = await localDataService.getUserDisplayName(
         currentUser.uid, 
         currentUser.email || ''
       );
-
-      // Сначала убеждаемся что пользователь сохранен в локальной базе
-      await localDataService.saveUser({
-        id: currentUser.uid,
-        email: currentUser.email || '',
-        fullName: displayName,
-        joinedAt: new Date().toISOString(),
-        lastActive: new Date().toISOString(),
-      });
-
-      // Создаем проблему
-      const problem = await localDataService.addProblem({
-        title: formData.title.trim(),
-        description: formData.description.trim(),
-        category: formData.category,
-        authorId: currentUser.uid,
-        authorName: displayName,
-        images: imageNames,
-      });
 
       // Отправляем данные в Google Sheets
       try {
         await googleSheetsAPIService.addSurveyData({
           title: formData.title.trim(),
           category: formData.category,
-          metric: 'Проблема ПНР', // Можно настроить отдельно
+          metric: formData.metric,
           description: formData.description.trim(),
-          imageBase64: imageBase64List[0] || '',
+          imageBase64: imageBase64,
           authorId: currentUser.uid,
           authorName: displayName
         });
-        console.log('✅ Данные также сохранены в Google Sheets');
+        console.log('✅ Данные сохранены в Google Sheets');
       } catch (error) {
         console.error('⚠️ Не удалось сохранить в Google Sheets:', error);
       }
 
       // Показываем успех
-      alert(`✅ Проблема "${problem.title}" успешно отправлена! Вы получили +1 балл.`);
-      
-      // Уведомляем другие компоненты об обновлении данных
-      window.dispatchEvent(new CustomEvent('userStatsUpdated'));
+      alert(`✅ Проблема "${formData.title}" успешно отправлена!`);
       
       // Очищаем форму
-      setFormData({ title: '', description: '', category: 'maintenance' });
+      setFormData({ title: '', description: '', category: 'maintenance', metric: 'design' });
       setImages([]);
 
-      console.log('🎉 Проблема сохранена в локальную базу данных!');
+      console.log('🎉 Проблема отправлена!');
 
     } catch (error) {
       console.error('Ошибка отправки проблемы:', error);
@@ -162,22 +141,8 @@ const SubmitProblemPage: React.FC = () => {
           📝 Сообщить о проблеме
         </h1>
         <p className="text-gray-600">
-          Опишите найденную проблему и получите баллы за активность
+          Опишите найденную проблему, и мы обязательно рассмотрим ваше обращение
         </p>
-      </div>
-
-      {/* Информация о системе */}
-      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-        <div className="flex items-start space-x-3">
-          <span className="text-2xl">⭐</span>
-          <div>
-            <h3 className="font-semibold text-green-800">Реальная система данных</h3>
-            <p className="text-sm text-green-600">
-              • За каждую проблему: +1 балл автоматически<br />
-              • Админ может добавить бонусные баллы за важные находки
-            </p>
-          </div>
-        </div>
       </div>
 
       {/* Форма */}
@@ -219,6 +184,27 @@ const SubmitProblemPage: React.FC = () => {
             {categories.map(cat => (
               <option key={cat.value} value={cat.value}>
                 {cat.emoji} {cat.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Метрика */}
+        <div>
+          <label htmlFor="metric" className="block text-sm font-medium text-gray-700 mb-2">
+            Метрика *
+          </label>
+          <select
+            id="metric"
+            name="metric"
+            value={formData.metric}
+            onChange={handleInputChange}
+            required
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            {metrics.map(metric => (
+              <option key={metric.value} value={metric.value}>
+                {metric.emoji} {metric.label}
               </option>
             ))}
           </select>
@@ -306,23 +292,22 @@ const SubmitProblemPage: React.FC = () => {
           {isSubmitting ? (
             <div className="flex items-center justify-center space-x-2">
               <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
-              <span>Сохранение...</span>
+              <span>Отправка...</span>
             </div>
           ) : (
-            '🚀 Отправить проблему (+1 балл)'
+            '🚀 Отправить проблему'
           )}
         </button>
       </form>
 
       {/* Дополнительная информация */}
       <div className="bg-gray-50 rounded-lg p-4">
-        <h3 className="font-semibold text-gray-800 mb-2">💡 Советы для получения максимальных баллов:</h3>
+        <h3 className="font-semibold text-gray-800 mb-2">💡 Рекомендации:</h3>
         <ul className="text-sm text-gray-600 space-y-1">
           <li> Будьте максимально конкретны в описании проблемы</li>
           <li> Прикрепляйте качественные фотографии для лучшего понимания</li>
           <li> Указывайте точное местоположение и время обнаружения</li>
           <li> Описывайте потенциальные риски и последствия</li>
-          <li> Админ может добавить до +10 бонусных баллов за особо важные находки</li>
         </ul>
       </div>
     </div>
