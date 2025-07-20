@@ -1,6 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
-import { localDataService } from '../../services/localDataService';
+import React from 'react';
 
 interface NavigationProps {
   activeTab: string;
@@ -8,40 +6,20 @@ interface NavigationProps {
 }
 
 const Navigation: React.FC<NavigationProps> = ({ activeTab, onTabChange }) => {
-  const { currentUser } = useAuth();
-  const [isAdmin, setIsAdmin] = useState(false);
-
-  useEffect(() => {
-    checkAdminStatus();
-  }, [currentUser]);
-
-  const checkAdminStatus = async () => {
-    if (currentUser && currentUser.email === 'admin@mail.ru') {
-      const adminStatus = await localDataService.isAdmin(currentUser.uid, currentUser.email || '');
-      setIsAdmin(adminStatus);
-    } else {
-      setIsAdmin(false);
-    }
-  };
-
   const tabs = [
     {
       id: 'submit',
       label: 'Отправить проблему',
       emoji: '📝',
       description: 'Сообщить о проблеме'
-    }
-  ];
-
-  // Добавляем вкладку настроек только для администраторов
-  if (isAdmin) {
-    tabs.push({
+    },
+    {
       id: 'settings',
       label: 'Настройки',
       emoji: '⚙️',
       description: 'Настройки системы'
-    });
-  }
+    }
+  ];
 
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-16 z-40">

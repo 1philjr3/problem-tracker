@@ -1,19 +1,13 @@
 import React, { useState } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
-import { localDataService } from '../../services/localDataService';
 import { googleSheetsAPIService } from '../../services/googleSheetsAPIService';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '../../firebase';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../firebase';
 
 const SubmitProblemPage: React.FC = () => {
-  const { currentUser } = useAuth();
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     category: 'maintenance',
-    metric: 'design'
+    metric: 'design',
+    fullName: ''
   });
   const [images, setImages] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -73,62 +67,38 @@ const SubmitProblemPage: React.FC = () => {
     setImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Функция для загрузки изображения в Firebase Storage
-  const uploadImageToStorage = async (file: File): Promise<string> => {
+  // Функция для загрузки изображения и получения URL
+  const uploadImageAndGetUrl = async (file: File): Promise<string> => {
     try {
-      const timestamp = Date.now();
-      const fileName = `images/${timestamp}_${file.name}`;
-      const imageRef = ref(storage, fileName);
+      // Простая загрузка в Imgur (бесплатный сервис для изображений)
+      const formData = new FormData();
+      formData.append('image', file);
       
-      await uploadBytes(imageRef, file);
-      const downloadURL = await getDownloadURL(imageRef);
+      const response = await fetch('https://api.imgur.com/3/image', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Client-ID 546c25a59c58ad7'
+        },
+        body: formData
+      });
       
-      return downloadURL;
-    } catch (error) {
-      console.error('Ошибка загрузки изображения:', error);
-      throw error;
-    }
-  };
-
-  // Функция для получения полного имени пользователя
-  const getUserFullName = async (): Promise<string> => {
-    if (!currentUser) return 'Пользователь';
-
-    // Сначала пробуем displayName из Firebase Auth
-    if (currentUser.displayName) {
-      return currentUser.displayName;
-    }
-
-    // Затем пробуем получить из Firestore
-    try {
-      const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        if (userData.fullName) {
-          return userData.fullName;
-        }
+      const result = await response.json();
+      if (result.success) {
+        return result.data.link;
+      } else {
+        throw new Error('Failed to upload to Imgur');
       }
     } catch (error) {
-      console.log('Не удалось получить данные из Firestore:', error);
+      console.error('Ошибка загрузки изображения:', error);
+      // Возвращаем пустую строку если не удалось загрузить
+      return '';
     }
-
-    // В крайнем случае используем часть email
-    if (currentUser.email) {
-      return currentUser.email.split('@')[0];
-    }
-    
-    return 'Пользователь';
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!currentUser) {
-      alert('Необходимо войти в систему');
-      return;
-    }
-    
-    if (!formData.title.trim() || !formData.description.trim()) {
+    if (!formData.title.trim() || !formData.description.trim() || !formData.fullName.trim()) {
       alert('Заполните все обязательные поля');
       return;
     }
@@ -136,20 +106,17 @@ const SubmitProblemPage: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      // Загружаем изображения в Firebase Storage и получаем URL
+      // Загружаем первое изображение и получаем URL
       let imageUrl = '';
       if (images.length > 0) {
         try {
-          imageUrl = await uploadImageToStorage(images[0]);
+          imageUrl = await uploadImageAndGetUrl(images[0]);
           console.log('✅ Изображение загружено:', imageUrl);
         } catch (error) {
           console.error('⚠️ Не удалось загрузить изображение:', error);
           // Продолжаем без изображения
         }
       }
-
-      // Получаем полное имя пользователя
-      const displayName = await getUserFullName();
 
       // Отправляем данные в Google Sheets
       try {
@@ -158,20 +125,27 @@ const SubmitProblemPage: React.FC = () => {
           category: formData.category,
           metric: formData.metric,
           description: formData.description.trim(),
-          imageBase64: imageUrl, // Теперь это URL вместо base64
-          authorId: currentUser.uid,
-          authorName: displayName
+          imageBase64: imageUrl,
+          authorId: '',
+          authorName: formData.fullName.trim()
         });
         console.log('✅ Данные сохранены в Google Sheets');
       } catch (error) {
         console.error('⚠️ Не удалось сохранить в Google Sheets:', error);
+        throw error;
       }
 
       // Показываем успех
       alert(`✅ Проблема "${formData.title}" успешно отправлена!`);
       
       // Очищаем форму
-      setFormData({ title: '', description: '', category: 'maintenance', metric: 'design' });
+      setFormData({ 
+        title: '', 
+        description: '', 
+        category: 'maintenance', 
+        metric: 'design',
+        fullName: ''
+      });
       setImages([]);
 
       console.log('🎉 Проблема отправлена!');
@@ -198,6 +172,24 @@ const SubmitProblemPage: React.FC = () => {
 
       {/* Форма */}
       <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-6">
+        {/* ФИО */}
+        <div>
+          <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 mb-2">
+            Ваше ФИО *
+          </label>
+          <input
+            type="text"
+            id="fullName"
+            name="fullName"
+            value={formData.fullName}
+            onChange={handleInputChange}
+            required
+            maxLength={100}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            placeholder="Введите ваше полное имя..."
+          />
+        </div>
+
         {/* Название проблемы */}
         <div>
           <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-2">
@@ -333,9 +325,9 @@ const SubmitProblemPage: React.FC = () => {
         {/* Кнопка отправки */}
         <button
           type="submit"
-          disabled={isSubmitting || !formData.title.trim() || !formData.description.trim()}
+          disabled={isSubmitting || !formData.title.trim() || !formData.description.trim() || !formData.fullName.trim()}
           className={`w-full py-4 px-6 rounded-xl font-bold text-lg transition-all duration-300 transform ${
-            isSubmitting || !formData.title.trim() || !formData.description.trim()
+            isSubmitting || !formData.title.trim() || !formData.description.trim() || !formData.fullName.trim()
               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
               : 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg hover:shadow-xl hover:scale-105 active:scale-95'
           }`}

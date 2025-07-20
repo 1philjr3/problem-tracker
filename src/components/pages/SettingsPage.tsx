@@ -1,30 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
 import { googleSheetsAPIService } from '../../services/googleSheetsAPIService';
-import { localDataService } from '../../services/localDataService';
 
 const SettingsPage: React.FC = () => {
-  const { currentUser } = useAuth();
-  const [isAdmin, setIsAdmin] = useState(false);
   const [webAppUrl, setWebAppUrl] = useState('');
   const [unsyncedCount, setUnsyncedCount] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
 
   useEffect(() => {
-    checkAdminStatus();
     loadSettings();
     updateUnsyncedCount();
-  }, [currentUser]);
-
-  const checkAdminStatus = async () => {
-    if (currentUser && currentUser.email === 'admin@mail.ru') {
-      const adminStatus = await localDataService.isAdmin(currentUser.uid, currentUser.email || '');
-      setIsAdmin(adminStatus);
-    } else {
-      setIsAdmin(false);
-    }
-  };
+  }, []);
 
   const loadSettings = () => {
     // Загружаем сохраненный URL из localStorage
@@ -102,17 +88,6 @@ const SettingsPage: React.FC = () => {
       alert('❌ Ошибка синхронизации');
     }
   };
-
-  if (!isAdmin) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-          <h2 className="text-xl font-semibold text-red-800">Доступ запрещён</h2>
-          <p className="text-red-600 mt-2">Эта страница доступна только администраторам</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -195,11 +170,12 @@ const SettingsPage: React.FC = () => {
         
         <div className="mt-4">
           <a
-            href="/GOOGLE_SHEETS_SETUP.md"
+            href="https://docs.google.com/spreadsheets/d/1PHrQ8ZwjrOc4_9QuvpQltuMpuSUGIlcb96lp6korbTA/edit?hl=ru&gid=0#gid=0"
             target="_blank"
+            rel="noopener noreferrer"
             className="text-blue-600 hover:underline"
           >
-            📄 Подробная инструкция →
+            🔗 Открыть Google таблицу →
           </a>
         </div>
       </div>
