@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { localDataService } from '../../services/localDataService';
 import { googleSheetsAPIService } from '../../services/googleSheetsAPIService';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from '../../firebase';
 
 const SubmitProblemPage: React.FC = () => {
   const { currentUser } = useAuth();
@@ -32,6 +34,7 @@ const SubmitProblemPage: React.FC = () => {
     { value: 'installation', label: 'Монтаж', emoji: '🔨' },
     { value: 'interaction', label: 'Взаимодействие', emoji: '🤝' },
     { value: 'documentation', label: 'Документация', emoji: '📋' },
+    { value: 'control', label: 'Контроль', emoji: '🔍' },
     { value: 'other', label: 'Другое', emoji: '📝' },
   ];
 
@@ -68,6 +71,23 @@ const SubmitProblemPage: React.FC = () => {
     setImages(prev => prev.filter((_, i) => i !== index));
   };
 
+  // Функция для загрузки изображения в Firebase Storage
+  const uploadImageToStorage = async (file: File): Promise<string> => {
+    try {
+      const timestamp = Date.now();
+      const fileName = `images/${timestamp}_${file.name}`;
+      const imageRef = ref(storage, fileName);
+      
+      await uploadBytes(imageRef, file);
+      const downloadURL = await getDownloadURL(imageRef);
+      
+      return downloadURL;
+    } catch (error) {
+      console.error('Ошибка загрузки изображения:', error);
+      throw error;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -84,21 +104,20 @@ const SubmitProblemPage: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      // Конвертируем первое изображение в base64 для Google Sheets
-      let imageBase64 = '';
+      // Загружаем изображения в Firebase Storage и получаем URL
+      let imageUrl = '';
       if (images.length > 0) {
-        const reader = new FileReader();
-        imageBase64 = await new Promise<string>((resolve) => {
-          reader.onload = () => resolve(reader.result as string);
-          reader.readAsDataURL(images[0]);
-        });
+        try {
+          imageUrl = await uploadImageToStorage(images[0]);
+          console.log('✅ Изображение загружено:', imageUrl);
+        } catch (error) {
+          console.error('⚠️ Не удалось загрузить изображение:', error);
+          // Продолжаем без изображения
+        }
       }
 
-      // Получаем имя пользователя
-      const displayName = await localDataService.getUserDisplayName(
-        currentUser.uid, 
-        currentUser.email || ''
-      );
+      // Получаем имя пользователя из профиля Firebase (полное имя при регистрации)
+      const displayName = currentUser.displayName || currentUser.email?.split('@')[0] || 'Пользователь';
 
       // Отправляем данные в Google Sheets
       try {
@@ -107,7 +126,7 @@ const SubmitProblemPage: React.FC = () => {
           category: formData.category,
           metric: formData.metric,
           description: formData.description.trim(),
-          imageBase64: imageBase64,
+          imageBase64: imageUrl, // Теперь это URL вместо base64
           authorId: currentUser.uid,
           authorName: displayName
         });

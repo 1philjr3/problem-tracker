@@ -12,6 +12,17 @@ const Header: React.FC = () => {
     }
   };
 
+  // Получаем имя пользователя для отображения
+  const getUserDisplayName = () => {
+    if (currentUser?.displayName) {
+      return currentUser.displayName;
+    }
+    if (currentUser?.email) {
+      return currentUser.email.split('@')[0];
+    }
+    return 'Пользователь';
+  };
+
   return (
     <header className="bg-white shadow-sm border-b">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -29,7 +40,7 @@ const Header: React.FC = () => {
           <div className="flex items-center space-x-4">
             <div className="text-right">
               <p className="text-sm font-medium text-gray-700">
-                {currentUser?.email?.split('@')[0]}
+                {getUserDisplayName()}
               </p>
               <p className="text-xs text-gray-500">{currentUser?.email}</p>
             </div>

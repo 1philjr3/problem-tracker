@@ -20,6 +20,30 @@
 const SPREADSHEET_ID = '1PHrQ8ZwjrOc4_9QuvpQltuMpuSUGIlcb96lp6korbTA';
 const SHEET_NAME = 'Лист1';
 
+// Русские названия категорий
+const CATEGORY_NAMES = {
+  'maintenance': 'ТО',
+  'testing': 'Испытания', 
+  'audit': 'Аудит',
+  'pnr': 'ПНР',
+  'safety': 'Безопасность',
+  'quality': 'Качество',
+  'equipment': 'Оборудование',
+  'process': 'Процессы',
+  'warranty': 'Гарантия',
+  'other': 'Другое'
+};
+
+// Русские названия метрик
+const METRIC_NAMES = {
+  'design': 'Проектирование',
+  'installation': 'Монтаж',
+  'interaction': 'Взаимодействие', 
+  'documentation': 'Документация',
+  'control': 'Контроль',
+  'other': 'Другое'
+};
+
 /**
  * Обработчик GET запросов (для тестирования)
  */
@@ -89,17 +113,21 @@ function addSurveyData(data) {
   
   // Добавляем временную метку, если её нет
   if (!data.timestamp) {
-    data.timestamp = new Date().toISOString();
+    data.timestamp = new Date().toLocaleString('ru-RU');
   }
+  
+  // Переводим названия на русский
+  const categoryRussian = CATEGORY_NAMES[data.category] || data.category;
+  const metricRussian = METRIC_NAMES[data.metric] || data.metric;
   
   // Подготавливаем данные для вставки
   const row = [
     data.timestamp,
     data.title || '',
-    data.category || '',
-    data.metric || '',
+    categoryRussian,
+    metricRussian,
     data.description || '',
-    data.imageBase64 || '',
+    data.imageBase64 || '', // Теперь это URL изображения
     data.authorId || '',
     data.authorName || ''
   ];
@@ -134,27 +162,27 @@ function getAllSurveys() {
     category: row[2],
     metric: row[3],
     description: row[4],
-    imageBase64: row[5],
+    imageUrl: row[5], // Теперь это URL
     authorId: row[6],
     authorName: row[7]
   }));
 }
 
 /**
- * Создает заголовки столбцов
+ * Создает заголовки столбцов на русском языке
  */
 function createHeaders() {
   const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_NAME);
   
   const headers = [
-    'Временная метка',
-    'Название',
+    'Дата и время',
+    'Название проблемы',
     'Категория',
     'Метрика',
     'Описание',
-    'Фото (base64)',
-    'ID автора',
-    'Имя автора'
+    'Фотография',
+    'ID пользователя',
+    'Имя пользователя'
   ];
   
   // Устанавливаем заголовки
@@ -164,13 +192,24 @@ function createHeaders() {
   sheet.getRange(1, 1, 1, headers.length)
     .setFontWeight('bold')
     .setBackground('#4285f4')
-    .setFontColor('#ffffff');
+    .setFontColor('#ffffff')
+    .setHorizontalAlignment('center');
   
   // Замораживаем первую строку
   sheet.setFrozenRows(1);
   
+  // Устанавливаем ширину столбцов
+  sheet.setColumnWidth(1, 150); // Дата и время
+  sheet.setColumnWidth(2, 200); // Название проблемы
+  sheet.setColumnWidth(3, 120); // Категория
+  sheet.setColumnWidth(4, 120); // Метрика
+  sheet.setColumnWidth(5, 300); // Описание
+  sheet.setColumnWidth(6, 200); // Фотография
+  sheet.setColumnWidth(7, 100); // ID пользователя
+  sheet.setColumnWidth(8, 150); // Имя пользователя
+  
   return {
-    message: 'Заголовки созданы',
+    message: 'Заголовки созданы на русском языке',
     headers: headers
   };
 }
@@ -180,13 +219,13 @@ function createHeaders() {
  */
 function test() {
   const testData = {
-    title: 'Тестовый опрос',
-    category: 'Тестовая категория',
-    metric: 'Тестовая метрика',
-    description: 'Это тестовое описание',
-    imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAI9jU77zgAAAABJRU5ErkJggg==',
+    title: 'Тестовая проблема',
+    category: 'maintenance',
+    metric: 'control',
+    description: 'Это тестовое описание проблемы',
+    imageBase64: 'https://example.com/image.jpg',
     authorId: 'test-user-123',
-    authorName: 'Тестовый пользователь'
+    authorName: 'Иван Иванов'
   };
   
   const result = addSurveyData(testData);

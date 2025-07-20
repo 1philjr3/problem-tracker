@@ -6,7 +6,7 @@ interface SurveyData {
   category: string;
   metric: string;
   description: string;
-  imageBase64?: string;
+  imageBase64?: string; // Теперь содержит URL изображения, а не base64
   timestamp?: string;
   authorId?: string;
   authorName?: string;
@@ -27,7 +27,7 @@ class GoogleSheetsAPIService {
     try {
       // Добавляем временную метку
       if (!data.timestamp) {
-        data.timestamp = new Date().toISOString();
+        data.timestamp = new Date().toLocaleString('ru-RU');
       }
 
       // Если Web App URL не настроен, сохраняем локально
