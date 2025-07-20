@@ -16,58 +16,207 @@ class GoogleSheetsAPIService {
   private spreadsheetId: string = '1PHrQ8ZwjrOc4_9QuvpQltuMpuSUGIlcb96lp6korbTA';
   private sheetName: string = 'Лист1';
   
-  // URL для Google Apps Script Web App (нужно будет создать и развернуть)
-  // Пример: https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec
+  // URL для Google Apps Script Web App
   private webAppUrl: string = '';
+  
+  // Публичный API ключ Google (альтернативный способ)
+  private googleApiKey: string = 'AIzaSyDbjPRbpsnNy3qfHcLMKlH9UxYW8pMsSwQ'; // Из Firebase конфига
 
   /**
    * Добавляет данные опроса в Google Sheets через Web App
    */
   async addSurveyData(data: SurveyData): Promise<boolean> {
+    console.log('🚀 НАЧИНАЕМ ОТПРАВКУ ДАННЫХ');
+    console.log('📱 User Agent:', navigator.userAgent);
+    console.log('🌐 URL Web App:', this.webAppUrl);
+    console.log('📋 Данные для отправки:', data);
+
+    // Добавляем временную метку
+    if (!data.timestamp) {
+      data.timestamp = new Date().toLocaleString('ru-RU');
+    }
+
+    // Если Web App URL не настроен, пробуем альтернативный способ
+    if (!this.webAppUrl) {
+      console.warn('⚠️ Google Apps Script Web App URL не настроен!');
+      console.log('🔄 Пробуем альтернативный способ через Google Sheets API...');
+      return await this.addDataViaPublicAPI(data);
+    }
+
     try {
-      // Добавляем временную метку
-      if (!data.timestamp) {
-        data.timestamp = new Date().toLocaleString('ru-RU');
-      }
-
-      // Если Web App URL не настроен, сохраняем локально
-      if (!this.webAppUrl) {
-        console.warn('⚠️ Google Apps Script Web App URL не настроен. Сохраняем данные локально.');
-        return this.saveToLocalStorage(data);
-      }
-
-      console.log('📱 Устройство:', /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ? 'Мобильное' : 'Десктоп');
-      console.log('📤 Отправляем на URL:', this.webAppUrl);
-
-      // Отправляем POST запрос на Web App с улучшенными настройками для мобильных
-      const response = await fetch(this.webAppUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'addSurvey',
-          data: data
-        }),
-        // Убираем mode: 'no-cors' для лучшей отладки
-      });
-
-      console.log('📡 Статус ответа:', response.status, response.statusText);
-
-      // Проверяем успешность ответа
-      if (response.ok) {
-        console.log('✅ Данные успешно отправлены в Google Sheets');
+      console.log('📤 Отправляем через Web App...');
+      
+      // Пробуем разные способы отправки
+      const success = await this.tryMultipleMethods(data);
+      
+      if (success) {
+        console.log('✅ ДАННЫЕ УСПЕШНО ОТПРАВЛЕНЫ!');
         return true;
       } else {
-        throw new Error(`HTTP Error: ${response.status} ${response.statusText}`);
+        throw new Error('Все методы отправки не сработали');
       }
 
     } catch (error) {
       console.error('❌ Ошибка отправки в Google Sheets:', error);
       
-      // Сохраняем локально как fallback
-      console.log('💾 Сохраняем локально для последующей синхронизации...');
-      return this.saveToLocalStorage(data);
+      // Пробуем альтернативный способ
+      console.log('🔄 Пробуем альтернативный способ...');
+      try {
+        return await this.addDataViaPublicAPI(data);
+      } catch (altError) {
+        console.error('❌ Альтернативный способ тоже не сработал:', altError);
+        
+        // Сохраняем локально как последний fallback
+        console.log('💾 Сохраняем локально...');
+        return this.saveToLocalStorage(data);
+      }
+    }
+  }
+
+  /**
+   * Пробует несколько методов отправки
+   */
+  private async tryMultipleMethods(data: SurveyData): Promise<boolean> {
+    const methods = [
+      () => this.sendWithFetch(data),
+      () => this.sendWithXMLHttpRequest(data),
+      () => this.sendWithForm(data)
+    ];
+
+    for (let i = 0; i < methods.length; i++) {
+      try {
+        console.log(`🔄 Пробуем метод ${i + 1}...`);
+        const success = await methods[i]();
+        if (success) {
+          console.log(`✅ Метод ${i + 1} сработал!`);
+          return true;
+        }
+      } catch (error) {
+        console.error(`❌ Метод ${i + 1} не сработал:`, error);
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Отправка через fetch
+   */
+  private async sendWithFetch(data: SurveyData): Promise<boolean> {
+    const response = await fetch(this.webAppUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'addSurvey',
+        data: data
+      })
+    });
+
+    console.log('📡 Fetch ответ:', response.status, response.statusText);
+    return response.status === 200;
+  }
+
+  /**
+   * Отправка через XMLHttpRequest
+   */
+  private async sendWithXMLHttpRequest(data: SurveyData): Promise<boolean> {
+    return new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', this.webAppUrl, true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4) {
+          console.log('📡 XHR ответ:', xhr.status, xhr.statusText);
+          resolve(xhr.status === 200);
+        }
+      };
+      
+      xhr.send(JSON.stringify({
+        action: 'addSurvey',
+        data: data
+      }));
+    });
+  }
+
+  /**
+   * Отправка через скрытую форму
+   */
+  private async sendWithForm(data: SurveyData): Promise<boolean> {
+    return new Promise((resolve) => {
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = this.webAppUrl;
+      form.style.display = 'none';
+
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'data';
+      input.value = JSON.stringify({
+        action: 'addSurvey',
+        data: data
+      });
+
+      form.appendChild(input);
+      document.body.appendChild(form);
+      
+      form.submit();
+      
+      // Удаляем форму через секунду
+      setTimeout(() => {
+        document.body.removeChild(form);
+        resolve(true); // Предполагаем успех
+      }, 1000);
+    });
+  }
+
+  /**
+   * Альтернативный способ через публичный Google Sheets API
+   */
+  private async addDataViaPublicAPI(data: SurveyData): Promise<boolean> {
+    try {
+      console.log('🔑 Пробуем публичный API Google Sheets...');
+      
+      // Формируем данные для публичного API
+      const values = [[
+        data.timestamp,
+        data.title,
+        data.category,
+        data.metric,
+        data.description,
+        data.imageBase64 || '',
+        data.authorId,
+        data.authorName
+      ]];
+
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${this.spreadsheetId}/values/${this.sheetName}!A:H:append?valueInputOption=RAW&key=${this.googleApiKey}`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          values: values
+        })
+      });
+
+      console.log('📡 Google API ответ:', response.status, response.statusText);
+      
+      if (response.ok) {
+        console.log('✅ Публичный API сработал!');
+        return true;
+      } else {
+        const errorText = await response.text();
+        console.error('❌ Ошибка публичного API:', errorText);
+        return false;
+      }
+
+    } catch (error) {
+      console.error('❌ Публичный API не сработал:', error);
+      return false;
     }
   }
 

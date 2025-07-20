@@ -160,10 +160,28 @@ function addSurveyData(data) {
       throw new Error('Лист "' + SHEET_NAME + '" не найден');
     }
     
-    // Если лист пустой, создаем заголовки
-    if (sheet.getLastRow() === 0) {
-      console.log('📊 Создаем заголовки...');
+    // ВСЕГДА проверяем и создаем заголовки если нужно
+    const lastRow = sheet.getLastRow();
+    console.log('📊 Текущая последняя строка:', lastRow);
+    
+    if (lastRow === 0) {
+      console.log('📊 Лист пустой, создаем заголовки...');
       createHeaders();
+    } else {
+      // Проверяем, есть ли заголовки в первой строке
+      const firstRowValues = sheet.getRange(1, 1, 1, 8).getValues()[0];
+      const hasHeaders = firstRowValues[0] && (
+        firstRowValues[0].toString().includes('Дата') || 
+        firstRowValues[0].toString().includes('время') ||
+        firstRowValues[0] === 'Дата и время'
+      );
+      
+      if (!hasHeaders) {
+        console.log('📊 Заголовки отсутствуют, создаем...');
+        // Вставляем строку в начало
+        sheet.insertRowBefore(1);
+        createHeaders();
+      }
     }
     
     // Добавляем временную метку, если её нет
@@ -214,7 +232,8 @@ function addSurveyData(data) {
       rowNumber: rowNumber,
       timestamp: new Date().toISOString(),
       categoryRussian: categoryRussian,
-      metricRussian: metricRussian
+      metricRussian: metricRussian,
+      hasHeaders: true
     };
     
   } catch (error) {
