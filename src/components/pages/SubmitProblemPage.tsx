@@ -288,39 +288,6 @@ const SubmitProblemPage: React.FC = () => {
         </p>
       </div>
 
-      {/* ДИАГНОСТИЧЕСКАЯ КНОПКА - УДАЛИТЬ ПОСЛЕ ТЕСТИРОВАНИЯ */}
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <h3 className="font-semibold text-red-800 mb-2">🔧 ДИАГНОСТИКА (временно)</h3>
-        <button
-          onClick={async () => {
-            console.log('🧪 ТЕСТОВАЯ ОТПРАВКА ДАННЫХ');
-            try {
-              const testData = {
-                title: 'ТЕСТОВАЯ ПРОБЛЕМА',
-                category: 'maintenance',
-                metric: 'control',
-                description: 'Это тестовая отправка для диагностики проблемы с мобильными устройствами. Время: ' + new Date().toLocaleString(),
-                imageBase64: '',
-                authorId: currentUser?.uid || 'test-user',
-                authorName: currentUser?.displayName || 'Тестовый пользователь'
-              };
-              
-              const result = await googleSheetsAPIService.addSurveyData(testData);
-              alert(result ? '✅ ТЕСТ ПРОШЕЛ!' : '❌ ТЕСТ НЕ ПРОШЕЛ');
-            } catch (error) {
-              console.error('❌ Ошибка теста:', error);
-              alert('❌ ОШИБКА ТЕСТА: ' + error);
-            }
-          }}
-          className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-        >
-          🧪 ТЕСТОВАЯ ОТПРАВКА (для диагностики)
-        </button>
-        <p className="text-xs text-red-600 mt-2">
-          Нажмите эту кнопку для тестовой отправки. Откройте консоль браузера (F12) для просмотра логов.
-        </p>
-      </div>
-
       {/* Форма */}
       <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-6">
         {/* Название проблемы */}
