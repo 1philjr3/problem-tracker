@@ -48,11 +48,14 @@ const METRIC_NAMES = {
  * Обработчик GET запросов (для тестирования)
  */
 function doGet(e) {
+  Logger.log('GET запрос получен');
+  
   return ContentService
     .createTextOutput(JSON.stringify({
       status: 'success',
       message: 'Google Sheets API работает!',
-      spreadsheetId: SPREADSHEET_ID
+      spreadsheetId: SPREADSHEET_ID,
+      timestamp: new Date().toISOString()
     }))
     .setMimeType(ContentService.MimeType.JSON);
 }
@@ -62,10 +65,42 @@ function doGet(e) {
  */
 function doPost(e) {
   try {
-    // Парсим входящие данные
-    const requestData = JSON.parse(e.postData.contents);
-    const action = requestData.action;
-    const data = requestData.data;
+    Logger.log('POST запрос получен');
+    Logger.log('Параметры:', e.parameter);
+    Logger.log('Тип контента:', e.postData ? e.postData.type : 'не указан');
+    
+    let requestData;
+    let action;
+    let data;
+    
+    // Обрабатываем разные типы данных
+    if (e.parameter && e.parameter.action) {
+      // FormData
+      action = e.parameter.action;
+      if (e.parameter.data) {
+        try {
+          data = JSON.parse(e.parameter.data);
+        } catch (parseError) {
+          Logger.log('Ошибка парсинга данных из FormData:', parseError);
+          throw new Error('Неверный формат данных в FormData');
+        }
+      }
+    } else if (e.postData && e.postData.contents) {
+      // JSON
+      try {
+        requestData = JSON.parse(e.postData.contents);
+        action = requestData.action;
+        data = requestData.data;
+      } catch (parseError) {
+        Logger.log('Ошибка парсинга JSON:', parseError);
+        throw new Error('Неверный формат JSON');
+      }
+    } else {
+      throw new Error('Не найдены данные в запросе');
+    }
+    
+    Logger.log('Действие:', action);
+    Logger.log('Данные:', data);
     
     let result;
     
@@ -83,18 +118,24 @@ function doPost(e) {
         throw new Error('Неизвестное действие: ' + action);
     }
     
+    Logger.log('Результат:', result);
+    
     return ContentService
       .createTextOutput(JSON.stringify({
         status: 'success',
-        result: result
+        result: result,
+        timestamp: new Date().toISOString()
       }))
       .setMimeType(ContentService.MimeType.JSON);
       
   } catch (error) {
+    Logger.log('Ошибка в doPost:', error);
+    
     return ContentService
       .createTextOutput(JSON.stringify({
         status: 'error',
-        message: error.toString()
+        message: error.toString(),
+        timestamp: new Date().toISOString()
       }))
       .setMimeType(ContentService.MimeType.JSON);
   }
@@ -104,114 +145,128 @@ function doPost(e) {
  * Добавляет новую строку с данными опроса
  */
 function addSurveyData(data) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_NAME);
-  
-  // Если лист пустой, создаем заголовки
-  if (sheet.getLastRow() === 0) {
-    createHeaders();
+  try {
+    Logger.log('Добавляем данные опроса:', data);
+    
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_NAME);
+    
+    // Если лист пустой, создаем заголовки
+    if (sheet.getLastRow() === 0) {
+      Logger.log('Лист пустой, создаем заголовки');
+      createHeaders();
+    }
+    
+    // Добавляем временную метку в российском формате, если её нет
+    let timestamp = data.timestamp;
+    if (!timestamp) {
+      const now = new Date();
+      timestamp = now.toLocaleDateString('ru-RU') + ', ' + now.toLocaleTimeString('ru-RU');
+    }
+    
+    // Переводим названия на русский
+    const categoryRussian = CATEGORY_NAMES[data.category] || data.category;
+    const metricRussian = METRIC_NAMES[data.metric] || data.metric;
+    
+    // Подготавливаем данные для вставки
+    const row = [
+      timestamp,
+      data.title || '',
+      categoryRussian,
+      metricRussian,
+      data.description || '',
+      data.imageBase64 || '', // Теперь это URL изображения
+      data.authorId || '',
+      data.authorName || ''
+    ];
+    
+    Logger.log('Добавляем строку:', row);
+    
+    // Добавляем строку в таблицу
+    sheet.appendRow(row);
+    
+    const result = {
+      message: 'Данные успешно добавлены',
+      rowNumber: sheet.getLastRow(),
+      timestamp: timestamp
+    };
+    
+    Logger.log('Данные добавлены успешно:', result);
+    return result;
+    
+  } catch (error) {
+    Logger.log('Ошибка при добавлении данных:', error);
+    throw error;
   }
-  
-  // Добавляем временную метку, если её нет
-  if (!data.timestamp) {
-    data.timestamp = new Date().toLocaleString('ru-RU');
-  }
-  
-  // Переводим названия на русский
-  const categoryRussian = CATEGORY_NAMES[data.category] || data.category;
-  const metricRussian = METRIC_NAMES[data.metric] || data.metric;
-  
-  // Подготавливаем данные для вставки
-  const row = [
-    data.timestamp,
-    data.title || '',
-    categoryRussian,
-    metricRussian,
-    data.description || '',
-    data.imageBase64 || '', // Теперь это URL изображения
-    data.authorId || '',
-    data.authorName || ''
-  ];
-  
-  // Добавляем строку в таблицу
-  sheet.appendRow(row);
-  
-  return {
-    message: 'Данные успешно добавлены',
-    rowNumber: sheet.getLastRow()
-  };
 }
 
 /**
  * Получает все данные опросов
  */
 function getAllSurveys() {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_NAME);
-  const lastRow = sheet.getLastRow();
-  
-  if (lastRow <= 1) {
-    return [];
+  try {
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_NAME);
+    const lastRow = sheet.getLastRow();
+    
+    if (lastRow <= 1) {
+      return [];
+    }
+    
+    // Получаем все данные, кроме заголовков
+    const data = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
+    
+    // Преобразуем в массив объектов
+    return data.map(row => ({
+      timestamp: row[0],
+      title: row[1],
+      category: row[2],
+      metric: row[3],
+      description: row[4],
+      imageUrl: row[5], // Теперь это URL
+      authorId: row[6],
+      authorName: row[7]
+    }));
+  } catch (error) {
+    Logger.log('Ошибка при получении данных:', error);
+    throw error;
   }
-  
-  // Получаем все данные, кроме заголовков
-  const data = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
-  
-  // Преобразуем в массив объектов
-  return data.map(row => ({
-    timestamp: row[0],
-    title: row[1],
-    category: row[2],
-    metric: row[3],
-    description: row[4],
-    imageUrl: row[5], // Теперь это URL
-    authorId: row[6],
-    authorName: row[7]
-  }));
 }
 
 /**
- * Создает заголовки столбцов на русском языке
+ * Создает заголовки таблицы
  */
 function createHeaders() {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_NAME);
-  
-  const headers = [
-    'Дата и время',
-    'Название проблемы',
-    'Категория',
-    'Метрика',
-    'Описание',
-    'Фотография',
-    'ID пользователя',
-    'Имя пользователя'
-  ];
-  
-  // Устанавливаем заголовки
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  
-  // Форматируем заголовки
-  sheet.getRange(1, 1, 1, headers.length)
-    .setFontWeight('bold')
-    .setBackground('#4285f4')
-    .setFontColor('#ffffff')
-    .setHorizontalAlignment('center');
-  
-  // Замораживаем первую строку
-  sheet.setFrozenRows(1);
-  
-  // Устанавливаем ширину столбцов
-  sheet.setColumnWidth(1, 150); // Дата и время
-  sheet.setColumnWidth(2, 200); // Название проблемы
-  sheet.setColumnWidth(3, 120); // Категория
-  sheet.setColumnWidth(4, 120); // Метрика
-  sheet.setColumnWidth(5, 300); // Описание
-  sheet.setColumnWidth(6, 200); // Фотография
-  sheet.setColumnWidth(7, 100); // ID пользователя
-  sheet.setColumnWidth(8, 150); // Имя пользователя
-  
-  return {
-    message: 'Заголовки созданы на русском языке',
-    headers: headers
-  };
+  try {
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_NAME);
+    
+    const headers = [
+      'Дата и время',
+      'Название проблемы',
+      'Категория',
+      'Метрика',
+      'Описание',
+      'Фотография',
+      'ID пользователя',
+      'Имя пользователя'
+    ];
+    
+    // Добавляем заголовки в первую строку
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    
+    // Форматируем заголовки
+    const headerRange = sheet.getRange(1, 1, 1, headers.length);
+    headerRange.setFontWeight('bold');
+    headerRange.setBackground('#f0f0f0');
+    
+    Logger.log('Заголовки созданы');
+    
+    return {
+      message: 'Заголовки созданы',
+      headers: headers
+    };
+  } catch (error) {
+    Logger.log('Ошибка при создании заголовков:', error);
+    throw error;
+  }
 }
 
 /**
