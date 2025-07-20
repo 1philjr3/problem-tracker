@@ -185,41 +185,6 @@ const SettingsPage: React.FC = () => {
       <div className="bg-white rounded-lg shadow-md p-6">
         <h2 className="text-xl font-semibold mb-4">📖 Инструкция по настройке</h2>
         
-        {/* СРОЧНЫЕ ИНСТРУКЦИИ */}
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-          <h3 className="text-lg font-semibold text-red-800 mb-3">🚨 СРОЧНО! Настройки для мобильных устройств</h3>
-          
-          <div className="space-y-4">
-            <div>
-              <h4 className="font-semibold text-red-700">1. Сделайте таблицу публичной:</h4>
-              <ul className="list-disc list-inside text-sm text-red-600 ml-4 space-y-1">
-                <li>Откройте Google таблицу</li>
-                <li>Нажмите "Настройки доступа" (правый верхний угол)</li>
-                <li>Измените "Ограниченный доступ" на "Доступ есть у всех в Интернете"</li>
-                <li>Роль: "Редактор"</li>
-                <li>Нажмите "Готово"</li>
-              </ul>
-            </div>
-            
-            <div>
-              <h4 className="font-semibold text-red-700">2. Добавьте заголовки в таблицу:</h4>
-              <p className="text-sm text-red-600 ml-4">
-                В первую строку (A1:H1) добавьте: Дата и время, Название проблемы, Категория, Метрика, Описание, Фотография, ID пользователя, Имя пользователя
-              </p>
-            </div>
-            
-            <div>
-              <h4 className="font-semibold text-red-700">3. Включите Google Sheets API:</h4>
-              <ul className="list-disc list-inside text-sm text-red-600 ml-4 space-y-1">
-                <li>Перейдите в <a href="https://console.cloud.google.com" target="_blank" className="underline">Google Cloud Console</a></li>
-                <li>Выберите проект или создайте новый</li>
-                <li>APIs & Services → Enable APIs</li>
-                <li>Найдите "Google Sheets API" и включите</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-        
         <ol className="list-decimal list-inside space-y-2 text-gray-700">
           <li>Откройте вашу Google таблицу</li>
           <li>Перейдите в <strong>Расширения → Apps Script</strong></li>

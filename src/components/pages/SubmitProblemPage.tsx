@@ -17,7 +17,6 @@ const SubmitProblemPage: React.FC = () => {
   });
   const [images, setImages] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isCompressing, setIsCompressing] = useState(false);
 
   const categories = [
     { value: 'maintenance', label: 'ТО', emoji: '🔧' },
@@ -74,104 +73,20 @@ const SubmitProblemPage: React.FC = () => {
     setImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Функция для сжатия изображения
-  const compressImage = (file: File, maxWidth: number = 1200, quality: number = 0.8): Promise<File> => {
-    return new Promise((resolve) => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d')!;
-      const img = new Image();
-
-      img.onload = () => {
-        // Вычисляем новые размеры с сохранением пропорций
-        let { width, height } = img;
-        
-        if (width > height) {
-          if (width > maxWidth) {
-            height = (height * maxWidth) / width;
-            width = maxWidth;
-          }
-        } else {
-          if (height > maxWidth) {
-            width = (width * maxWidth) / height;
-            height = maxWidth;
-          }
-        }
-
-        // Устанавливаем размеры canvas
-        canvas.width = width;
-        canvas.height = height;
-
-        // Рисуем сжатое изображение
-        ctx.drawImage(img, 0, 0, width, height);
-
-        // Конвертируем в blob
-        canvas.toBlob(
-          (blob) => {
-            if (blob) {
-              // Создаем новый файл со сжатым изображением
-              const compressedFile = new File([blob], file.name, {
-                type: 'image/jpeg',
-                lastModified: Date.now()
-              });
-              resolve(compressedFile);
-            } else {
-              resolve(file); // Fallback на оригинальный файл
-            }
-          },
-          'image/jpeg',
-          quality
-        );
-      };
-
-      img.onerror = () => {
-        resolve(file); // Fallback на оригинальный файл
-      };
-
-      img.src = URL.createObjectURL(file);
-    });
-  };
-
-  // Функция для конвертации файла в base64 (fallback для мобильных)
-  const convertToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  };
-
-  // Функция для загрузки изображения в Firebase Storage с fallback
+  // Функция для загрузки изображения в Firebase Storage
   const uploadImageToStorage = async (file: File): Promise<string> => {
     try {
-      // Сжимаем изображение перед загрузкой
-      console.log('📷 Сжимаем изображение...');
-      const compressedFile = await compressImage(file);
-      
-      console.log(`📊 Размер до сжатия: ${(file.size / 1024).toFixed(1)} KB`);
-      console.log(`📊 Размер после сжатия: ${(compressedFile.size / 1024).toFixed(1)} KB`);
-      
       const timestamp = Date.now();
-      const fileName = `images/${timestamp}_compressed_${compressedFile.name}`;
+      const fileName = `images/${timestamp}_${file.name}`;
       const imageRef = ref(storage, fileName);
       
-      await uploadBytes(imageRef, compressedFile);
+      await uploadBytes(imageRef, file);
       const downloadURL = await getDownloadURL(imageRef);
       
       return downloadURL;
     } catch (error) {
-      console.error('❌ Firebase Storage недоступен, используем base64 fallback:', error);
-      
-      // Fallback для мобильных устройств - конвертируем в base64
-      try {
-        const compressedFile = await compressImage(file);
-        const base64 = await convertToBase64(compressedFile);
-        console.log('✅ Изображение конвертировано в base64 для мобильного устройства');
-        return base64;
-      } catch (fallbackError) {
-        console.error('❌ Не удалось обработать изображение:', fallbackError);
-        throw fallbackError;
-      }
+      console.error('Ошибка загрузки изображения:', error);
+      throw error;
     }
   };
 
@@ -218,48 +133,42 @@ const SubmitProblemPage: React.FC = () => {
       return;
     }
 
+    setIsSubmitting(true);
+
     try {
-      // Загружаем изображения (с fallback на base64 для мобильных)
+      // Загружаем изображения в Firebase Storage и получаем URL
       let imageUrl = '';
       if (images.length > 0) {
         try {
-          setIsCompressing(true);
           imageUrl = await uploadImageToStorage(images[0]);
-          console.log('✅ Изображение обработано:', imageUrl ? 'Успешно' : 'Без изображения');
+          console.log('✅ Изображение загружено:', imageUrl);
         } catch (error) {
-          console.error('⚠️ Не удалось обработать изображение:', error);
+          console.error('⚠️ Не удалось загрузить изображение:', error);
           // Продолжаем без изображения
-        } finally {
-          setIsCompressing(false);
         }
       }
-
-      setIsSubmitting(true);
 
       // Получаем полное имя пользователя
       const displayName = await getUserFullName();
 
-      // Отправляем данные в Google Sheets с улучшенной обработкой ошибок
+      // Отправляем данные в Google Sheets
       try {
-        console.log('📤 Отправляем данные в Google Sheets...');
         await googleSheetsAPIService.addSurveyData({
           title: formData.title.trim(),
           category: formData.category,
           metric: formData.metric,
           description: formData.description.trim(),
-          imageBase64: imageUrl,
+          imageBase64: imageUrl, // Теперь это URL вместо base64
           authorId: currentUser.uid,
           authorName: displayName
         });
-        console.log('✅ Данные успешно сохранены в Google Sheets');
-      } catch (sheetsError) {
-        console.error('❌ Ошибка отправки в Google Sheets:', sheetsError);
-        // Показываем ошибку, но не прерываем процесс
-        alert('⚠️ Данные сохранены локально. Проверьте подключение к интернету и настройки Google Sheets.');
+        console.log('✅ Данные сохранены в Google Sheets');
+      } catch (error) {
+        console.error('⚠️ Не удалось сохранить в Google Sheets:', error);
       }
 
       // Показываем успех
-      alert(`✅ Проблема "${formData.title}" отправлена!`);
+      alert(`✅ Проблема "${formData.title}" успешно отправлена!`);
       
       // Очищаем форму
       setFormData({ title: '', description: '', category: 'maintenance', metric: 'design' });
@@ -268,11 +177,10 @@ const SubmitProblemPage: React.FC = () => {
       console.log('🎉 Проблема отправлена!');
 
     } catch (error) {
-      console.error('❌ Общая ошибка отправки проблемы:', error);
-      alert('❌ Ошибка отправки. Проверьте подключение к интернету и попробуйте еще раз.');
+      console.error('Ошибка отправки проблемы:', error);
+      alert('❌ Ошибка отправки проблемы. Попробуйте еще раз.');
     } finally {
       setIsSubmitting(false);
-      setIsCompressing(false);
     }
   };
 
@@ -379,17 +287,13 @@ const SubmitProblemPage: React.FC = () => {
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Фотографии (до 5 файлов, макс 5MB каждый)
           </label>
-          <div className="text-xs text-gray-500 mb-2">
-            📷 Изображения будут автоматически сжаты до 1200px для быстрой загрузки
-          </div>
           <div className="space-y-4">
             <input
               type="file"
               accept="image/*"
               multiple
               onChange={handleImageChange}
-              disabled={isCompressing || isSubmitting}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             
             {images.length > 0 && (
@@ -407,15 +311,14 @@ const SubmitProblemPage: React.FC = () => {
                         <div>
                           <p className="text-sm font-medium text-gray-700">{file.name}</p>
                           <p className="text-xs text-gray-500">
-                            {(file.size / 1024).toFixed(1)} KB → будет сжато
+                            {(file.size / 1024).toFixed(1)} KB
                           </p>
                         </div>
                       </div>
                       <button
                         type="button"
                         onClick={() => removeImage(index)}
-                        disabled={isCompressing || isSubmitting}
-                        className="text-red-500 hover:text-red-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="text-red-500 hover:text-red-700 font-medium"
                       >
                         Удалить
                       </button>
@@ -430,9 +333,9 @@ const SubmitProblemPage: React.FC = () => {
         {/* Кнопка отправки */}
         <button
           type="submit"
-          disabled={isSubmitting || isCompressing || !formData.title.trim() || !formData.description.trim()}
+          disabled={isSubmitting || !formData.title.trim() || !formData.description.trim()}
           className={`w-full py-4 px-6 rounded-xl font-bold text-lg transition-all duration-300 transform ${
-            isSubmitting || isCompressing || !formData.title.trim() || !formData.description.trim()
+            isSubmitting || !formData.title.trim() || !formData.description.trim()
               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
               : 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg hover:shadow-xl hover:scale-105 active:scale-95'
           }`}
@@ -441,11 +344,6 @@ const SubmitProblemPage: React.FC = () => {
             <div className="flex items-center justify-center space-x-3">
               <div className="animate-spin h-5 w-5 border-3 border-white border-t-transparent rounded-full"></div>
               <span>Отправляем...</span>
-            </div>
-          ) : isCompressing ? (
-            <div className="flex items-center justify-center space-x-3">
-              <div className="animate-spin h-5 w-5 border-3 border-white border-t-transparent rounded-full"></div>
-              <span>Сжимаем фото...</span>
             </div>
           ) : (
             <div className="flex items-center justify-center space-x-2">
