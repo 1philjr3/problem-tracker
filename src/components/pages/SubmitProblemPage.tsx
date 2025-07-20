@@ -4,6 +4,8 @@ import { localDataService } from '../../services/localDataService';
 import { googleSheetsAPIService } from '../../services/googleSheetsAPIService';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
 
 const SubmitProblemPage: React.FC = () => {
   const { currentUser } = useAuth();
@@ -88,6 +90,36 @@ const SubmitProblemPage: React.FC = () => {
     }
   };
 
+  // Функция для получения полного имени пользователя
+  const getUserFullName = async (): Promise<string> => {
+    if (!currentUser) return 'Пользователь';
+
+    // Сначала пробуем displayName из Firebase Auth
+    if (currentUser.displayName) {
+      return currentUser.displayName;
+    }
+
+    // Затем пробуем получить из Firestore
+    try {
+      const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        if (userData.fullName) {
+          return userData.fullName;
+        }
+      }
+    } catch (error) {
+      console.log('Не удалось получить данные из Firestore:', error);
+    }
+
+    // В крайнем случае используем часть email
+    if (currentUser.email) {
+      return currentUser.email.split('@')[0];
+    }
+    
+    return 'Пользователь';
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -116,8 +148,8 @@ const SubmitProblemPage: React.FC = () => {
         }
       }
 
-      // Получаем имя пользователя из профиля Firebase (полное имя при регистрации)
-      const displayName = currentUser.displayName || currentUser.email?.split('@')[0] || 'Пользователь';
+      // Получаем полное имя пользователя
+      const displayName = await getUserFullName();
 
       // Отправляем данные в Google Sheets
       try {
@@ -302,33 +334,25 @@ const SubmitProblemPage: React.FC = () => {
         <button
           type="submit"
           disabled={isSubmitting || !formData.title.trim() || !formData.description.trim()}
-          className={`w-full py-3 px-4 rounded-lg font-medium transition-colors ${
+          className={`w-full py-4 px-6 rounded-xl font-bold text-lg transition-all duration-300 transform ${
             isSubmitting || !formData.title.trim() || !formData.description.trim()
               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              : 'bg-blue-600 hover:bg-blue-700 text-white'
+              : 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg hover:shadow-xl hover:scale-105 active:scale-95'
           }`}
         >
           {isSubmitting ? (
-            <div className="flex items-center justify-center space-x-2">
-              <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
-              <span>Отправка...</span>
+            <div className="flex items-center justify-center space-x-3">
+              <div className="animate-spin h-5 w-5 border-3 border-white border-t-transparent rounded-full"></div>
+              <span>Отправляем...</span>
             </div>
           ) : (
-            '🚀 Отправить проблему'
+            <div className="flex items-center justify-center space-x-2">
+              <span className="text-2xl">🚀</span>
+              <span>Отправить проблему</span>
+            </div>
           )}
         </button>
       </form>
-
-      {/* Дополнительная информация */}
-      <div className="bg-gray-50 rounded-lg p-4">
-        <h3 className="font-semibold text-gray-800 mb-2">💡 Рекомендации:</h3>
-        <ul className="text-sm text-gray-600 space-y-1">
-          <li> Будьте максимально конкретны в описании проблемы</li>
-          <li> Прикрепляйте качественные фотографии для лучшего понимания</li>
-          <li> Указывайте точное местоположение и время обнаружения</li>
-          <li> Описывайте потенциальные риски и последствия</li>
-        </ul>
-      </div>
     </div>
   );
 };

@@ -1,8 +1,48 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
 
 const Header: React.FC = () => {
   const { currentUser, logout } = useAuth();
+  const [displayName, setDisplayName] = useState<string>('');
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchDisplayName();
+    }
+  }, [currentUser]);
+
+  const fetchDisplayName = async () => {
+    if (!currentUser) return;
+
+    // Сначала пробуем displayName из Firebase Auth
+    if (currentUser.displayName) {
+      setDisplayName(currentUser.displayName);
+      return;
+    }
+
+    // Затем пробуем получить из Firestore
+    try {
+      const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        if (userData.fullName) {
+          setDisplayName(userData.fullName);
+          return;
+        }
+      }
+    } catch (error) {
+      console.log('Не удалось получить данные из Firestore:', error);
+    }
+
+    // В крайнем случае используем часть email
+    if (currentUser.email) {
+      setDisplayName(currentUser.email.split('@')[0]);
+    } else {
+      setDisplayName('Пользователь');
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -10,17 +50,6 @@ const Header: React.FC = () => {
     } catch (error) {
       console.error('Error logging out:', error);
     }
-  };
-
-  // Получаем имя пользователя для отображения
-  const getUserDisplayName = () => {
-    if (currentUser?.displayName) {
-      return currentUser.displayName;
-    }
-    if (currentUser?.email) {
-      return currentUser.email.split('@')[0];
-    }
-    return 'Пользователь';
   };
 
   return (
@@ -40,7 +69,7 @@ const Header: React.FC = () => {
           <div className="flex items-center space-x-4">
             <div className="text-right">
               <p className="text-sm font-medium text-gray-700">
-                {getUserDisplayName()}
+                {displayName || 'Пользователь'}
               </p>
               <p className="text-xs text-gray-500">{currentUser?.email}</p>
             </div>

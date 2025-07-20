@@ -5,7 +5,8 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
-  sendEmailVerification
+  sendEmailVerification,
+  updateProfile
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -98,6 +99,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const user = userCredential.user;
       
       console.log('User created:', user.uid);
+      
+      // Обновляем displayName в Firebase Auth
+      try {
+        await updateProfile(user, {
+          displayName: fullName
+        });
+        console.log('Display name updated in Firebase Auth');
+      } catch (profileError) {
+        console.warn('Failed to update display name:', profileError);
+      }
       
       // Создаем профиль пользователя в Firestore
       const userProfileData: Omit<User, 'id'> = {

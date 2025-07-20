@@ -47,37 +47,36 @@ const Navigation: React.FC<NavigationProps> = ({ activeTab, onTabChange }) => {
     <nav className="bg-white border-b border-gray-200 sticky top-16 z-40">
       <div className="max-w-7xl mx-auto px-4">
         {/* Навигация */}
-        <div className="flex space-x-1 overflow-x-auto scrollbar-hide sm:justify-center py-2">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => onTabChange(tab.id)}
-              className={`
-                flex flex-col items-center justify-center min-w-0 flex-shrink-0 px-3 py-2 sm:px-6 sm:py-3 
-                rounded-lg transition-all duration-200 text-xs sm:text-sm font-medium
-                ${activeTab === tab.id
-                  ? 'bg-blue-100 text-blue-700 border-2 border-blue-200'
-                  : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50 border-2 border-transparent'
-                }
-              `}
-            >
-              <span className="text-lg sm:text-xl mb-1">{tab.emoji}</span>
-              <span className="font-semibold whitespace-nowrap">{tab.label}</span>
-              <span className="text-xs text-gray-500 hidden sm:block mt-1">
-                {tab.description}
-              </span>
-            </button>
+        <div className="flex justify-center items-center py-4">
+          {tabs.map((tab, index) => (
+            <div key={tab.id} className="flex items-center">
+              <button
+                onClick={() => onTabChange(tab.id)}
+                className={`
+                  flex flex-col items-center justify-center px-8 py-4 mx-2
+                  rounded-xl transition-all duration-300 text-sm font-semibold
+                  transform hover:scale-105 min-w-[160px]
+                  ${activeTab === tab.id
+                    ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg scale-105'
+                    : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50 border-2 border-gray-200 hover:border-gray-300'
+                  }
+                `}
+              >
+                <span className="text-2xl mb-2">{tab.emoji}</span>
+                <span className="font-bold whitespace-nowrap">{tab.label}</span>
+                <span className="text-xs opacity-75 mt-1">
+                  {tab.description}
+                </span>
+              </button>
+              
+              {/* Разделитель между кнопками, кроме последней */}
+              {index < tabs.length - 1 && (
+                <div className="w-px h-8 bg-gray-300 mx-2"></div>
+              )}
+            </div>
           ))}
         </div>
       </div>
-      
-      {/* Индикатор активной вкладки */}
-      <div className="bg-blue-600 h-1 transition-all duration-300" 
-           style={{
-             width: `${100 / tabs.length}%`,
-             marginLeft: `${tabs.findIndex(tab => tab.id === activeTab) * (100 / tabs.length)}%`
-           }}
-      />
     </nav>
   );
 };
