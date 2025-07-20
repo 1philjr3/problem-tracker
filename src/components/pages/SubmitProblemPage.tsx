@@ -131,7 +131,17 @@ const SubmitProblemPage: React.FC = () => {
     });
   };
 
-  // Функция для загрузки изображения в Firebase Storage
+  // Функция для конвертации файла в base64 (fallback для мобильных)
+  const convertToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Функция для загрузки изображения в Firebase Storage с fallback
   const uploadImageToStorage = async (file: File): Promise<string> => {
     try {
       // Сжимаем изображение перед загрузкой
@@ -150,8 +160,18 @@ const SubmitProblemPage: React.FC = () => {
       
       return downloadURL;
     } catch (error) {
-      console.error('Ошибка загрузки изображения:', error);
-      throw error;
+      console.error('❌ Firebase Storage недоступен, используем base64 fallback:', error);
+      
+      // Fallback для мобильных устройств - конвертируем в base64
+      try {
+        const compressedFile = await compressImage(file);
+        const base64 = await convertToBase64(compressedFile);
+        console.log('✅ Изображение конвертировано в base64 для мобильного устройства');
+        return base64;
+      } catch (fallbackError) {
+        console.error('❌ Не удалось обработать изображение:', fallbackError);
+        throw fallbackError;
+      }
     }
   };
 
@@ -199,15 +219,15 @@ const SubmitProblemPage: React.FC = () => {
     }
 
     try {
-      // Загружаем изображения в Firebase Storage и получаем URL
+      // Загружаем изображения (с fallback на base64 для мобильных)
       let imageUrl = '';
       if (images.length > 0) {
         try {
           setIsCompressing(true);
           imageUrl = await uploadImageToStorage(images[0]);
-          console.log('✅ Изображение загружено:', imageUrl);
+          console.log('✅ Изображение обработано:', imageUrl ? 'Успешно' : 'Без изображения');
         } catch (error) {
-          console.error('⚠️ Не удалось загрузить изображение:', error);
+          console.error('⚠️ Не удалось обработать изображение:', error);
           // Продолжаем без изображения
         } finally {
           setIsCompressing(false);
@@ -219,24 +239,27 @@ const SubmitProblemPage: React.FC = () => {
       // Получаем полное имя пользователя
       const displayName = await getUserFullName();
 
-      // Отправляем данные в Google Sheets
+      // Отправляем данные в Google Sheets с улучшенной обработкой ошибок
       try {
+        console.log('📤 Отправляем данные в Google Sheets...');
         await googleSheetsAPIService.addSurveyData({
           title: formData.title.trim(),
           category: formData.category,
           metric: formData.metric,
           description: formData.description.trim(),
-          imageBase64: imageUrl, // Теперь это URL вместо base64
+          imageBase64: imageUrl,
           authorId: currentUser.uid,
           authorName: displayName
         });
-        console.log('✅ Данные сохранены в Google Sheets');
-      } catch (error) {
-        console.error('⚠️ Не удалось сохранить в Google Sheets:', error);
+        console.log('✅ Данные успешно сохранены в Google Sheets');
+      } catch (sheetsError) {
+        console.error('❌ Ошибка отправки в Google Sheets:', sheetsError);
+        // Показываем ошибку, но не прерываем процесс
+        alert('⚠️ Данные сохранены локально. Проверьте подключение к интернету и настройки Google Sheets.');
       }
 
       // Показываем успех
-      alert(`✅ Проблема "${formData.title}" успешно отправлена!`);
+      alert(`✅ Проблема "${formData.title}" отправлена!`);
       
       // Очищаем форму
       setFormData({ title: '', description: '', category: 'maintenance', metric: 'design' });
@@ -245,8 +268,8 @@ const SubmitProblemPage: React.FC = () => {
       console.log('🎉 Проблема отправлена!');
 
     } catch (error) {
-      console.error('Ошибка отправки проблемы:', error);
-      alert('❌ Ошибка отправки проблемы. Попробуйте еще раз.');
+      console.error('❌ Общая ошибка отправки проблемы:', error);
+      alert('❌ Ошибка отправки. Проверьте подключение к интернету и попробуйте еще раз.');
     } finally {
       setIsSubmitting(false);
       setIsCompressing(false);

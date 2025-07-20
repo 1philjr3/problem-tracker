@@ -36,24 +36,37 @@ class GoogleSheetsAPIService {
         return this.saveToLocalStorage(data);
       }
 
-      // Отправляем POST запрос на Web App
+      console.log('📱 Устройство:', /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ? 'Мобильное' : 'Десктоп');
+      console.log('📤 Отправляем на URL:', this.webAppUrl);
+
+      // Отправляем POST запрос на Web App с улучшенными настройками для мобильных
       const response = await fetch(this.webAppUrl, {
         method: 'POST',
-        mode: 'no-cors', // Для обхода CORS
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           action: 'addSurvey',
           data: data
-        })
+        }),
+        // Убираем mode: 'no-cors' для лучшей отладки
       });
 
-      console.log('✅ Данные отправлены в Google Sheets');
-      return true;
+      console.log('📡 Статус ответа:', response.status, response.statusText);
+
+      // Проверяем успешность ответа
+      if (response.ok) {
+        console.log('✅ Данные успешно отправлены в Google Sheets');
+        return true;
+      } else {
+        throw new Error(`HTTP Error: ${response.status} ${response.statusText}`);
+      }
+
     } catch (error) {
       console.error('❌ Ошибка отправки в Google Sheets:', error);
-      // Fallback на локальное хранение
+      
+      // Сохраняем локально как fallback
+      console.log('💾 Сохраняем локально для последующей синхронизации...');
       return this.saveToLocalStorage(data);
     }
   }

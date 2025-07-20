@@ -55,16 +55,16 @@ const Navigation: React.FC<NavigationProps> = ({ activeTab, onTabChange }) => {
                 className={`
                   flex flex-col items-center justify-center px-8 py-4 mx-2
                   rounded-xl transition-all duration-300 text-sm font-semibold
-                  transform hover:scale-105 min-w-[160px]
+                  transform hover:scale-105 min-w-[160px] border-2
                   ${activeTab === tab.id
-                    ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg scale-105'
-                    : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50 border-2 border-gray-200 hover:border-gray-300'
+                    ? 'bg-blue-600 text-white shadow-xl scale-105 border-blue-600'
+                    : 'text-gray-600 hover:text-gray-800 hover:bg-blue-50 border-gray-200 hover:border-blue-300'
                   }
                 `}
               >
                 <span className="text-2xl mb-2">{tab.emoji}</span>
                 <span className="font-bold whitespace-nowrap">{tab.label}</span>
-                <span className="text-xs opacity-75 mt-1">
+                <span className={`text-xs mt-1 ${activeTab === tab.id ? 'text-blue-100' : 'opacity-75'}`}>
                   {tab.description}
                 </span>
               </button>
